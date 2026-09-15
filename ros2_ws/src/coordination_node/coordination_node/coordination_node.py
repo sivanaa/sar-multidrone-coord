@@ -141,6 +141,23 @@ class CoordinationNode(Node):
         self.target_pub.publish(msg)
         self._on_target_detected(msg)  # handle our own detection immediately
 
+    def _sync_state_with_bundle(self):
+        """Keep `state` consistent with whether this drone currently holds
+        any committed tasks. This is the return half of the state machine
+        (see ARCHITECTURE.md's diagram) — without it, a drone that loses
+        every task via consensus stays stuck in TASK_ALLOCATION forever with
+        PSO paused (`_tick` only steps PSO while `state == SEARCH`).
+
+        TODO: there's no task-completion lifecycle yet (nothing marks a
+        *won* task as finished/investigated), so a drone that's actually
+        winning tasks won't return to SEARCH via this path either — that
+        needs real investigation/telemetry logic, not just consensus
+        bookkeeping. Found via live two-drone testing on 2026-09-15: a
+        drone's position froze the instant it won its first task and never
+        moved again, even 800+ seconds later.
+        """
+        self.state = STATE_TASK_ALLOCATION if self.cbba.bundle else STATE_SEARCH
+
     def _on_target_detected(self, msg: TargetDetected):
         task = Task(
             task_id=msg.target_id,
@@ -149,8 +166,8 @@ class CoordinationNode(Node):
             confidence=msg.confidence,
         )
         self.cbba.add_task(task)
-        self.state = STATE_TASK_ALLOCATION
         self.cbba.build_bundle(self.pso.state.position)
+        self._sync_state_with_bundle()
         self._publish_bundle_state()
 
     def _publish_bundle_state(self):
@@ -185,6 +202,7 @@ class CoordinationNode(Node):
             bundle_before = len(self.cbba.bundle)
             self.cbba.build_bundle(self.pso.state.position)
             changed = changed or len(self.cbba.bundle) > bundle_before
+        self._sync_state_with_bundle()
         # Only republish on an actual change — otherwise two drones would
         # keep re-broadcasting at each other forever even after consensus
         # settles, which just wastes bandwidth for no benefit.

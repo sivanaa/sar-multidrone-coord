@@ -112,6 +112,14 @@ own "next report" scope:**
   directly heard the originating `TargetDetected`. Fine for a small,
   well-connected fleet; would need fixing for late-joining drones or lossy
   comms.
+- **Task completion lifecycle** — nothing currently marks a *won* task as
+  finished/investigated, so a drone that's actually winning tasks (not just
+  losing them via consensus) never returns to SEARCH — its bundle just
+  keeps holding whatever it won. The `TASK_ALLOCATION → SEARCH` return path
+  itself is implemented (`_sync_state_with_bundle`, fires when the bundle
+  empties via being outbid), but "empties because the task got done" isn't
+  modeled yet — that needs real investigation/telemetry logic, not just
+  consensus bookkeeping.
 - **Real position input** — `pso.py`/`coordination_node.py` currently use a
   local (x, y) the node manages itself, not PX4's actual telemetry. Wiring
   this to real position requires the Micro-XRCE-DDS-Agent bridge (built
