@@ -126,6 +126,55 @@ own "next report" scope:**
   2026-09-14, not yet installed/running) so PX4's local position reaches
   ROS 2 as a topic this node can subscribe to.
 
+## Manual testing procedure
+
+No automated tests exist yet — this is how the coordination logic has actually been
+verified so far, by running real nodes and watching real topic traffic. All commands assume
+the usual server setup (`pixi shell` in `ros_ws`, `unset VIRTUAL_ENV`, `source
+install/setup.bash` from `ros2_ws`) in each terminal/tmux window.
+
+**1. Launch two (or more) drone instances**, each in its own window, with distinct IDs and
+starting positions so you can tell them apart:
+```
+ros2 run coordination_node coordination_node --ros-args -p drone_id:=0 -p num_drones:=2 -p initial_x:=0.0 -p initial_y:=0.0
+ros2 run coordination_node coordination_node --ros-args -p drone_id:=1 -p num_drones:=2 -p initial_x:=5.0 -p initial_y:=5.0
+```
+
+**2. Watch PSO search behavior** — confirm a drone's position actually changes over time
+(not frozen):
+```
+ros2 topic echo /drone_0/coordination/agent_state
+```
+Watch `position.x`/`position.y` change between consecutive messages, and `best_fitness`
+becoming nonzero as it moves. If it stays at exactly `(0,0,0)` forever, something is wrong
+with PSO's initialization or the fitness function — this is exactly how the zero-velocity
+deadlock (2026-09-15) was caught.
+
+**3. Trigger the CBBA phase without needing a real detection pipeline** — publish a fake
+`TargetDetected` directly onto another drone's topic. Since every node subscribes to every
+*other* drone's topics (not its own), this convincingly simulates "drone 1 detected
+something" without drone 1's real node needing to be running:
+```
+ros2 topic pub --once /drone_1/coordination/target_detected coordination_msgs/msg/TargetDetected "{drone_id: 1, target_id: 43, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
+```
+Use a fresh, never-before-used `target_id` each time — reusing one that's already in a
+drone's `tasks` dict won't exercise the "new task" path.
+
+**4. Watch the reaction** — start this *before* step 3 so you don't miss the one-shot
+reaction (topics are volatile/non-latched, no replay for late subscribers):
+```
+ros2 topic echo /drone_0/coordination/bundle_state
+```
+Check: does `known_task_ids` include the new task, is `winning_bids` a sensible non-zero
+number, and does `bundle` include it if this drone should win? Also spot-check
+`agent_state`'s `state` field flips to `1` (`TASK_ALLOCATION`).
+
+**Known gap in this procedure**: because there's no task-completion lifecycle yet (see
+below), a drone that wins a task never returns to `SEARCH` on its own — so testing the
+`TASK_ALLOCATION → SEARCH` return path currently requires engineering an "outbid" scenario
+(e.g. manually publishing a competing `BundleState` with a higher bid and a fresher
+timestamp for the same task) rather than it happening naturally.
+
 ## Next steps
 
 1. Build `coordination_msgs` + `coordination_node` on the server (`colcon
