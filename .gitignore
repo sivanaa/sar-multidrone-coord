@@ -8,3 +8,4 @@ _pycache_/
 #OS
 .DS_Store
 Thumbs.ds
+ros2_ws/src/px4_msgs/
