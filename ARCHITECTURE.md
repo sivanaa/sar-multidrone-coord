@@ -81,7 +81,12 @@ ros2_ws/src/
 ## What's a real first draft vs. what's still open
 
 **Working now:**
-- PSO update rule (inertia/cognitive/social terms, velocity clamping)
+- PSO update rule (inertia/cognitive/social terms, velocity clamping, and a
+  small random initial-velocity kick — without it every particle starts
+  exactly at its own best-known position with zero velocity, which is a real
+  deadlock, not just an unbiased start: nothing pulls a stationary particle
+  anywhere until it has already moved. Found via live two-drone testing on
+  2026-09-15, where drone 0 sat frozen at (0,0,0) for 50+ ticks straight.)
 - CBBA bundle construction (greedy marginal-bid insertion) and a simplified
   consensus update rule
 - Full pub/sub wiring and the SEARCH ↔ TASK_ALLOCATION state machine

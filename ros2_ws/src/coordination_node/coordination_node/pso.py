@@ -33,14 +33,26 @@ class ParticleSwarmSearch:
     """
 
     def __init__(self, drone_id, initial_position, fitness_fn,
-                 inertia=0.6, cognitive=1.4, social=1.4, max_speed=3.0):
+                 inertia=0.6, cognitive=1.4, social=1.4, max_speed=3.0,
+                 initial_speed_fraction=0.3):
         self.drone_id = drone_id
         self.fitness_fn = fitness_fn
         self.inertia = inertia
         self.cognitive = cognitive
         self.social = social
         self.max_speed = max_speed
-        self.state = PsoState(position=initial_position)
+
+        # A zero starting velocity is a real deadlock, not just an unbiased
+        # start: fitness at a particle's own starting position is always 0
+        # relative to itself (distance-to-self), so with zero velocity there
+        # is nothing pulling it anywhere — cognitive and social terms are
+        # both zero until it has *already* moved. A small random kick is
+        # standard PSO initialization, and it's what actually bootstraps
+        # exploration here.
+        kick = max_speed * initial_speed_fraction
+        initial_velocity = (random.uniform(-kick, kick), random.uniform(-kick, kick))
+
+        self.state = PsoState(position=initial_position, velocity=initial_velocity)
         self.state.best_fitness = fitness_fn(*initial_position)
 
     def step(self, dt, swarm_best_position):
