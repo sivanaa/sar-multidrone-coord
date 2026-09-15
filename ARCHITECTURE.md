@@ -122,28 +122,75 @@ own "next report" scope:**
   empties via being outbid), but "empties because the task got done" isn't
   modeled yet — that needs real investigation/telemetry logic, not just
   consensus bookkeeping.
-- **Real position input** — partially wired 2026-09-15. `pso.py`'s `step()`
-  now accepts an optional `real_position` override, and
-  `coordination_node.py` has a `use_px4_position` parameter that, when set,
-  subscribes to `px4_local_position_topic` (default
-  `/fmu/out/vehicle_local_position`, `px4_msgs/msg/VehicleLocalPosition`) —
-  the same topic/message/QoS already proven working in this project's
-  `hw-ros2` ROS 2 workspace (see `hw_insight/move_position.py` there). This
-  is **read-only telemetry only**: real position replaces the fitness/
-  broadcast position each tick, but nothing yet commands PX4 to move
-  (no offboard velocity/position setpoints, no arm/offboard-mode
-  sequencing) — so with `use_px4_position` on, the drone's reported
-  position will just track wherever it actually is, not follow PSO's pull,
-  until a command loop is added as a later step. `px4_msgs` lives in the
-  separate `hw-ros2` workspace, not this one, so it's imported lazily and
-  only when `use_px4_position:=true`; without that workspace overlaid, the
-  node logs a warning and falls back to the internally-simulated position
-  exactly as before (verified 2026-09-15). Running this live also needs
-  PX4 SITL + AirSim + the Micro-XRCE-DDS-Agent bridge, all of which already
-  have working launch scripts on this machine (`~/fly1_px4.sh`,
-  `~/fly2_agent.sh`, `~/fly3_ros2.sh`) but require an interactive session
-  (AirSim's GUI, a keyboard-focused terminal) to drive, so it hasn't been
-  live-tested against real/simulated PX4 yet — only the fallback path has.
+- **Real position input** — partially wired 2026-09-15, live-testing started
+  but not yet passing. `pso.py`'s `step()` accepts an optional
+  `real_position` override, and `coordination_node.py` has a
+  `use_px4_position` parameter that, when set, subscribes to
+  `px4_local_position_topic` (`px4_msgs/msg/VehicleLocalPosition`). This is
+  **read-only telemetry only**: real position replaces the fitness/broadcast
+  position each tick, but nothing yet commands PX4 to move (no offboard
+  velocity/position setpoints, no arm/offboard-mode sequencing) — so with
+  `use_px4_position` on, the drone's reported position tracks wherever it
+  actually is, not PSO's pull, until a command loop is added later.
+  `px4_msgs` is not on this repo (it's `.gitignore`d) — it's vendored
+  directly into the **project's real drone server** at
+  `~/sivana/sar-multidrone-coord/ros2_ws/src/px4_msgs` (pinned to PX4 commit
+  `37e0cb3f6caa4ef31a84d6c9692d756f941e33ae`) and built together with
+  `coordination_node`/`coordination_msgs` in that one workspace — no
+  separate overlay needed there. If it's ever missing, the node logs a
+  warning and falls back to the internally-simulated position instead of
+  crashing (verified 2026-09-15).
+
+  **The project's actual sim/hardware server is `uavintern@gpu` (SSH)**,
+  under `~/sivana/`: `PX4-Autopilot` (real repo, `v1.18.0-beta1`, already
+  built), `px4_sim` (pixi env with Gazebo Harmonic — `gz-sim8`/`gz-launch7`,
+  **not AirSim**), `ros_ws` (pixi env with `ros-humble-desktop-full` via
+  RoboStack — enter with `pixi shell`, then `unset VIRTUAL_ENV` per the
+  manual testing procedure below), `Micro-XRCE-DDS-Agent` (built), and this
+  repo. Launch sequence used 2026-09-15:
+  ```
+  # Terminal 1: PX4 SITL + Gazebo, headless (no display on this server)
+  cd ~/sivana/px4_sim && pixi shell
+  cd ~/sivana/PX4-Autopilot && HEADLESS=1 make px4_sitl gz_x500
+
+  # Terminal 2: the DDS bridge
+  ~/sivana/Micro-XRCE-DDS-Agent/build/MicroXRCEAgent udp4 -p 8888
+
+  # Terminal 3: our node
+  cd ~/sivana/ros_ws && pixi shell && unset VIRTUAL_ENV
+  cd ~/sivana/sar-multidrone-coord/ros2_ws
+  colcon build --symlink-install && source install/setup.bash
+  ros2 run coordination_node coordination_node --ros-args \
+    -p drone_id:=0 -p num_drones:=1 -p use_px4_position:=true
+  ```
+  **Found and fixed 2026-09-15**: this PX4 version publishes local position
+  under a *versioned* topic name, `/fmu/out/vehicle_local_position_v1`, not
+  the unversioned `/fmu/out/vehicle_local_position` originally hardcoded as
+  this node's default (confirmed via `ros2 topic list` / `ros2 topic type`;
+  the message type itself is unchanged, still `VehicleLocalPosition`). The
+  default is now fixed to the `_v1` name.
+
+  **Still open / not yet working**: even after pointing at the correct
+  topic, one comparison of `agent_state.position` against a live
+  `/fmu/out/vehicle_local_position_v1` reading showed values well outside
+  that topic's tiny (grounded, motors-idle jitter) range — suggesting
+  `real_position` was still `None` (internally-simulated fallback) rather
+  than tracking telemetry, even though `coordination_node`'s startup log
+  showed no `px4_msgs` warning and `ros2 topic info --verbose` showed
+  matching QoS (`BEST_EFFORT` + `TRANSIENT_LOCAL` on both sides) — though
+  that same check showed `Subscription count: 0`, and it's unconfirmed
+  whether the node had already been stopped by that point in the session.
+  **Next step**: reproduce cleanly — start the node in one terminal, and
+  in a *separate* terminal (without touching the first) confirm
+  `ros2 node list` shows it running and `ros2 node info /coordination_node`
+  lists a subscription to exactly `/fmu/out/vehicle_local_position_v1` —
+  then re-compare live values.
+
+  Arming during this session failed with PX4's `commander check`: "No
+  connection to the GCS" — expected, since there's no QGroundControl or
+  other MAVLink heartbeat source running headless, and unrelated to the
+  position-wiring work above (this step doesn't need the vehicle to
+  actually fly, only to report real telemetry while grounded).
 
 ## Manual testing procedure
 
@@ -196,24 +243,27 @@ timestamp for the same task) rather than it happening naturally.
 
 ## Next steps
 
-1. ~~Build `coordination_msgs` + `coordination_node` on the server (`colcon
-   build`) and fix whatever comes up.~~ Done 2026-09-15 (via WSL Ubuntu
-   22.04 + ROS 2 Humble, already set up on this machine): both packages
-   build clean. `colcon test` caught one real `flake8` continuation-indent
-   bug in `cbba.py` (fixed); the remaining `pep257` failures are docstring
-   convention nitpicks (D213 vs. the Google-style docstrings actually used),
-   not logic issues — left alone for now. A live two-drone run confirmed the
-   full pipeline end-to-end: PSO position visibly moves tick-to-tick with
-   nonzero `best_fitness` (no deadlock regression), and a fake
-   `TargetDetected` on drone 1's topic correctly produced a `BundleState` on
-   drone 0 with the task known, a nonzero winning bid, drone 0 in the
-   bundle, and `agent_state.state` flipping to `TASK_ALLOCATION` — matching
-   the manual testing procedure above exactly.
-2. Live-test `use_px4_position` against real PX4 SITL + AirSim, using the
-   existing `~/fly1_px4.sh` (PX4 SITL) → `~/fly2_agent.sh`
-   (Micro-XRCE-DDS-Agent) → `~/fly3_ros2.sh`-style pipeline already working
-   for `hw-ros2`. Needs an interactive session (AirSim GUI, keyboard-focused
-   terminal), so someone needs to drive it by hand.
+1. ~~Build `coordination_msgs` + `coordination_node` and fix whatever comes
+   up.~~ Done 2026-09-15 (built/tested on a local WSL Ubuntu 22.04 + ROS 2
+   Humble environment as a first correctness check, separate from the
+   project's real drone server): both packages build clean. `colcon test`
+   caught one real `flake8` continuation-indent bug in `cbba.py` (fixed);
+   the remaining `pep257` failures are docstring convention nitpicks (D213
+   vs. the Google-style docstrings actually used), not logic issues — left
+   alone. A live two-drone run confirmed the full pipeline end-to-end: PSO
+   position visibly moves tick-to-tick with nonzero `best_fitness` (no
+   deadlock regression), and a fake `TargetDetected` on drone 1's topic
+   correctly produced a `BundleState` on drone 0 with the task known, a
+   nonzero winning bid, drone 0 in the bundle, and `agent_state.state`
+   flipping to `TASK_ALLOCATION` — matching the manual testing procedure
+   above exactly.
+2. **In progress** — finish live-testing `use_px4_position` on the real
+   drone server (`uavintern@gpu`), per the detailed notes and open item
+   under "Real position input" above. Immediate next step: cleanly confirm
+   (in a separate terminal from the one running the node) that
+   `ros2 node info /coordination_node` actually shows a subscription to
+   `/fmu/out/vehicle_local_position_v1`, then re-compare
+   `agent_state.position` against live telemetry values.
 3. Once real position is confirmed flowing, decide on and build the command
    loop (PX4 offboard velocity/position setpoints + arm/offboard-mode
    sequencing) so PSO's output actually drives the vehicle — currently nothing
