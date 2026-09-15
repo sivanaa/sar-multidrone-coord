@@ -55,9 +55,17 @@ class ParticleSwarmSearch:
         self.state = PsoState(position=initial_position, velocity=initial_velocity)
         self.state.best_fitness = fitness_fn(*initial_position)
 
-    def step(self, dt, swarm_best_position):
-        """Advance one PSO update using the best known swarm position."""
-        x, y = self.state.position
+    def step(self, dt, swarm_best_position, real_position=None):
+        """Advance one PSO update using the best known swarm position.
+
+        `real_position`, when given, is real telemetry (e.g. PX4 local
+        position) and is used as this tick's actual location instead of the
+        internally-integrated one — nothing currently commands the vehicle
+        to follow PSO's velocity, so with `real_position` set, velocity
+        keeps evolving (useful once a command loop exists) but position
+        tracks truth rather than a fictitious `x += vx * dt` guess.
+        """
+        x, y = real_position if real_position is not None else self.state.position
         vx, vy = self.state.velocity
         pbx, pby = self.state.best_position
         gbx, gby = swarm_best_position
@@ -76,14 +84,16 @@ class ParticleSwarmSearch:
             vx *= scale
             vy *= scale
 
-        x += vx * dt
-        y += vy * dt
+        if real_position is not None:
+            new_x, new_y = real_position
+        else:
+            new_x, new_y = x + vx * dt, y + vy * dt
 
-        fitness = self.fitness_fn(x, y)
-        self.state.position = (x, y)
+        fitness = self.fitness_fn(new_x, new_y)
+        self.state.position = (new_x, new_y)
         self.state.velocity = (vx, vy)
         if fitness > self.state.best_fitness:
-            self.state.best_position = (x, y)
+            self.state.best_position = (new_x, new_y)
             self.state.best_fitness = fitness
 
         return self.state.position

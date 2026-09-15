@@ -88,7 +88,7 @@ class CbbaAgent:
         return self.bundle
 
     def receive_bundle_state(self, sender_id, known_task_ids, winning_bids,
-                              winning_agents, update_times):
+                             winning_agents, update_times):
         """Consensus update against one neighbor's broadcast.
 
         Simplified version of the full action table in the paper (Table 1):

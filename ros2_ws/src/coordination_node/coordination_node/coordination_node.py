@@ -54,6 +54,8 @@ class CoordinationNode(Node):
         self.declare_parameter('num_drones', 2)
         self.declare_parameter('initial_x', 0.0)
         self.declare_parameter('initial_y', 0.0)
+        self.declare_parameter('use_px4_position', False)
+        self.declare_parameter('px4_local_position_topic', '/fmu/out/vehicle_local_position')
 
         self.drone_id = self.get_parameter('drone_id').value
         self.num_drones = self.get_parameter('num_drones').value
@@ -67,6 +69,15 @@ class CoordinationNode(Node):
             fitness_fn=make_exploration_fitness(init_x, init_y),
         )
         self.cbba = CbbaAgent(drone_id=self.drone_id)
+
+        # Real PX4 telemetry, when enabled, overrides PSO's internally
+        # integrated position each tick (see pso.py's `step`). None until
+        # the first message arrives, which pso.step() already treats the
+        # same as "not using real position yet".
+        self._real_position = None
+        self.use_px4_position = self.get_parameter('use_px4_position').value
+        if self.use_px4_position:
+            self._setup_px4_position_subscription()
 
         self.neighbor_best = {}  # drone_id -> ((x, y), fitness)
         self._next_task_id = self.drone_id * 100000  # cheap collision-free id space
@@ -97,6 +108,43 @@ class CoordinationNode(Node):
             f'coordination_node up: drone_id={self.drone_id} '
             f'num_drones={self.num_drones}'
         )
+
+    # ---- PX4 real position (optional) --------------------------------------
+
+    def _setup_px4_position_subscription(self):
+        """Subscribe to PX4's local position via the Micro-XRCE-DDS bridge.
+
+        `px4_msgs` lives in a separate ROS 2 workspace (this project's
+        `hw-ros2` overlay, see ARCHITECTURE.md) rather than this one, so it's
+        only imported here, on demand, and only when `use_px4_position` is
+        set — this way running without that workspace sourced still works
+        exactly as before, just without real telemetry.
+        """
+        try:
+            from px4_msgs.msg import VehicleLocalPosition
+        except ImportError:
+            self.get_logger().warning(
+                'use_px4_position:=true but px4_msgs is not on this '
+                'workspace overlay (source the hw-ros2 ROS 2 workspace '
+                'before this one) — falling back to internally-simulated '
+                'position.')
+            self.use_px4_position = False
+            return
+
+        from rclpy.qos import (
+            QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy)
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        topic = self.get_parameter('px4_local_position_topic').value
+        self.create_subscription(
+            VehicleLocalPosition, topic, self._on_px4_local_position, qos_profile)
+
+    def _on_px4_local_position(self, msg):
+        self._real_position = (msg.x, msg.y)
 
     # ---- PSO / neighbor tracking -------------------------------------------
 
@@ -213,7 +261,8 @@ class CoordinationNode(Node):
 
     def _tick(self):
         if self.state == STATE_SEARCH:
-            self.pso.step(dt=0.5, swarm_best_position=self._swarm_best())
+            self.pso.step(dt=0.5, swarm_best_position=self._swarm_best(),
+                          real_position=self._real_position)
         self._publish_agent_state()
 
 
