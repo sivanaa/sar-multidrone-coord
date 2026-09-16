@@ -24,17 +24,30 @@ VIZ_PID=""
 # Runs no matter how the script exits (success, error, or Ctrl-C) - without
 # this, a transient failure partway through (e.g. `ros2 topic pub` hiccups)
 # would abort the script via `set -e` and leave the background drone/
-# visualizer processes orphaned with nothing to stop them.
+# visualizer processes orphaned with nothing to stop them. Uses the same
+# pattern-based kill as the startup cleanup below (not just the captured
+# PIDs) as a second line of defense - if this SSH session itself drops
+# mid-run (as happened repeatedly during real use), this trap never even
+# gets to fire, which is exactly why the *next* invocation's startup
+# cleanup matters just as much as this one.
 cleanup() {
   [ -n "$DRONE0_PID" ] && kill "$DRONE0_PID" 2>/dev/null
   [ -n "$DRONE1_PID" ] && kill "$DRONE1_PID" 2>/dev/null
   [ -n "$VIZ_PID" ] && kill "$VIZ_PID" 2>/dev/null
+  pkill -f "lib/coordination_node/coordination_node" 2>/dev/null
+  pkill -f "tools/visualize_run.py" 2>/dev/null
   return 0
 }
 trap cleanup EXIT
 
 echo "== Cleaning up any leftover coordination_node / visualizer processes =="
-pkill -f "coordination_node coordination_node" 2>/dev/null || true
+# NOTE: "coordination_node coordination_node" (space-separated) never
+# matched anything real - `ros2 run` execs into the actual binary, whose
+# argv shows the *path* "lib/coordination_node/coordination_node" (slash-
+# separated), confirmed live via `pgrep -af coordination_node`. The old
+# pattern silently did nothing every single run, letting orphaned
+# processes from interrupted sessions pile up indefinitely.
+pkill -f "lib/coordination_node/coordination_node" 2>/dev/null || true
 pkill -f "tools/visualize_run.py" 2>/dev/null || true
 sleep 1
 
