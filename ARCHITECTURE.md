@@ -114,6 +114,18 @@ own "next report" scope:**
   directly heard the originating `TargetDetected`. Fine for a small,
   well-connected fleet; would need fixing for late-joining drones or lossy
   comms.
+- **No navigation-to-target at all, won or not** — CBBA decides *who is
+  responsible* for a task, but nothing anywhere currently drives a drone
+  *toward* the task's position. Winning a task just freezes the drone's PSO
+  motion wherever it happened to be at that moment (see the zero-velocity
+  and state-machine fixes above) — its final position has no necessary
+  relationship to the target's location. Confirmed via live testing
+  2026-09-15/16: a demo run left both drones ~2-3m from the detected target
+  with no path segment showing movement toward it. Separately, PSO's own
+  fitness function has no awareness of target positions either. Fixing this
+  needs new logic: once a task is won, override the movement objective
+  (PSO fitness, or eventually the real command loop) to target the task's
+  position instead of continuing area-search behavior.
 - **Task completion lifecycle** — nothing currently marks a *won* task as
   finished/investigated, so a drone that's actually winning tasks (not just
   losing them via consensus) never returns to SEARCH — its bundle just
