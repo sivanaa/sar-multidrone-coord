@@ -43,16 +43,31 @@ scenario where connectivity to a ground station can't be guaranteed.
   caught and fixed two genuine bugs (a PSO initialization deadlock, a missing
   state-machine transition) that code review alone hadn't surfaced.
 
-## What the current demo run shows — and what it doesn't yet
+## What the demo runs show — and what they don't yet
 
-The latest run (attached/shown) shows both drones exploring and a target
-detection correctly triggering a CBBA response. It also shows a precise,
-useful limitation: winning a task currently only marks a drone as
-*responsible* for it — nothing yet drives the drone to actually navigate
-toward the target's position, since the fitness function driving movement
-doesn't know about target locations at all. This is expected at this stage:
-movement/control hasn't been built yet (see below) — coordination *logic* was
-the first milestone, coordination *action* is next.
+Two independent runs of the same scripted scenario (attached) both show the
+same two findings — repeatable, not a one-off fluke:
+
+1. **The two drones' search paths converge toward each other** instead of
+   spreading to cover different area. Cause: each drone's search-fitness is
+   scored relative to *its own* starting point, so the values aren't
+   comparable across drones — the algorithm's "move toward whoever's doing
+   best" rule ends up pulling drones toward each other's absolute position
+   rather than toward complementary, uncovered ground. Precise, fixable:
+   the search fitness needs to become a shared quality measure (planned:
+   the flood-risk-weighted scoring already used by the existing single-drone
+   pipeline).
+2. **Winning a task doesn't yet move a drone toward it.** CBBA correctly
+   decides *who's responsible* for a detected target, but nothing currently
+   drives that drone to actually navigate there — both runs end with the
+   responsible drone several meters from the target. Expected at this stage:
+   coordination *logic* was the first milestone; coordination *action*
+   (movement/control) is next, not yet built.
+
+Also visible in both runs: the search paths aren't straight lines — they
+curve as the algorithm continuously re-balances between each drone's own
+best-found position and the swarm's, plus a small random exploration term
+every step. That's the real search dynamics running as designed, not noise.
 
 ## Next steps
 
