@@ -17,6 +17,22 @@ SEARCH_SECONDS="${2:-15}"
 REACT_SECONDS="${3:-10}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+DRONE0_PID=""
+DRONE1_PID=""
+VIZ_PID=""
+
+# Runs no matter how the script exits (success, error, or Ctrl-C) - without
+# this, a transient failure partway through (e.g. `ros2 topic pub` hiccups)
+# would abort the script via `set -e` and leave the background drone/
+# visualizer processes orphaned with nothing to stop them.
+cleanup() {
+  [ -n "$DRONE0_PID" ] && kill "$DRONE0_PID" 2>/dev/null
+  [ -n "$DRONE1_PID" ] && kill "$DRONE1_PID" 2>/dev/null
+  [ -n "$VIZ_PID" ] && kill "$VIZ_PID" 2>/dev/null
+  return 0
+}
+trap cleanup EXIT
+
 echo "== Cleaning up any leftover coordination_node / visualizer processes =="
 pkill -f "coordination_node coordination_node" 2>/dev/null || true
 pkill -f "tools/visualize_run.py" 2>/dev/null || true
@@ -52,8 +68,5 @@ ros2 topic pub --once /drone_1/coordination/target_detected \
 echo "== Letting the CBBA reaction play out for ${REACT_SECONDS}s =="
 sleep "$REACT_SECONDS"
 
-echo "== Stopping drones and visualizer =="
-kill "$DRONE0_PID" "$DRONE1_PID" "$VIZ_PID" 2>/dev/null || true
-wait 2>/dev/null || true
-
 echo "== Done. Demo plot: $OUT =="
+# cleanup() runs automatically here via the EXIT trap.
