@@ -15,7 +15,6 @@ it's missing).
 """
 
 import argparse
-import time
 
 import matplotlib
 matplotlib.use('Agg')
@@ -48,9 +47,12 @@ class RunVisualizer(Node):
         super().__init__('run_visualizer')
         self.num_drones = num_drones
         self.out_path = out_path
-        self._t0 = time.time()
+        # x-axis for the distance panel is sample index, not wall-clock
+        # time - an index is guaranteed strictly increasing by construction
+        # (it's just each list's own position), so it can't produce an
+        # out-of-order/zigzag plot regardless of any timing irregularity.
         self.tracks = {
-            i: {'x': [], 'y': [], 'state': [], 't': []}
+            i: {'x': [], 'y': [], 'state': []}
             for i in range(num_drones)
         }
         self.targets = []  # (x, y, target_id)
@@ -73,7 +75,6 @@ class RunVisualizer(Node):
         t['x'].append(msg.position.x)
         t['y'].append(msg.position.y)
         t['state'].append(msg.state)
-        t['t'].append(time.time() - self._t0)
 
     def _on_target_detected(self, msg):
         self.targets.append((msg.position.x, msg.position.y, msg.target_id))
@@ -131,15 +132,17 @@ class RunVisualizer(Node):
             ax_map.scatter([t['x'][0]], [t['y'][0]], s=70, facecolor=SURFACE,
                            edgecolor=color, linewidth=2, zorder=3)
 
-            # Distance-to-target-over-time panel.
+            # Distance-to-target-over-sample panel (x-axis is sample index,
+            # not wall-clock time - see note above on why).
             if first_target is not None:
                 tx, ty, tid = first_target
                 dist = [((x - tx) ** 2 + (y - ty) ** 2) ** 0.5
                         for x, y in zip(t['x'], t['y'])]
-                ax_dist.plot(t['t'], dist, '-', color=color, linewidth=2,
+                sample_idx = list(range(len(dist)))
+                ax_dist.plot(sample_idx, dist, '-', color=color, linewidth=2,
                              alpha=0.9, label=f'Drone {i}')
                 if task_idx is not None:
-                    ax_dist.scatter([t['t'][task_idx]], [dist[task_idx]],
+                    ax_dist.scatter([sample_idx[task_idx]], [dist[task_idx]],
                                     marker='D', s=70, facecolor=color,
                                     edgecolor=INK, linewidth=1.2, zorder=5)
 
@@ -167,7 +170,7 @@ class RunVisualizer(Node):
 
         ax_dist.set_title('Distance to detected target over time',
                           color=INK, fontsize=12, fontweight='bold')
-        ax_dist.set_xlabel('elapsed time (s)', color=SECONDARY_INK)
+        ax_dist.set_xlabel('sample # (each ~0.5s apart)', color=SECONDARY_INK)
         ax_dist.set_ylabel('distance (m)', color=SECONDARY_INK)
         ax_dist.grid(True, color=GRID, linewidth=0.8)
         ax_dist.tick_params(colors=SECONDARY_INK)
