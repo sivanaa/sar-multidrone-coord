@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Standalone visualization: logs drone positions/states/detected targets over
-time and periodically saves a trajectory plot as a PNG. No GUI/X11 needed on
-the server — open the PNG in an editor connected to this machine (e.g. VS
-Code over Remote-SSH) and refresh it to watch a run progress.
+time and periodically saves a two-panel PNG (spatial trajectory + distance-
+to-target over time). No GUI/X11 needed on the server — open the PNG in an
+editor connected to this machine (e.g. VS Code over Remote-SSH, or scp'd to a
+local copy) and refresh it to watch a run progress.
 
 Run after sourcing ros2_ws/install/setup.bash, alongside the
 coordination_node instances you want to visualize:
@@ -14,10 +15,12 @@ it's missing).
 """
 
 import argparse
+import time
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import numpy as np
 
 import rclpy
 from rclpy.node import Node
@@ -35,12 +38,21 @@ SECONDARY_INK = '#52514e'
 GRID = '#e1e0d9'
 
 
+def hex_to_rgb(hex_color):
+    hex_color = hex_color.lstrip('#')
+    return tuple(int(hex_color[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+
 class RunVisualizer(Node):
     def __init__(self, num_drones, out_path, save_every_sec):
         super().__init__('run_visualizer')
         self.num_drones = num_drones
         self.out_path = out_path
-        self.tracks = {i: {'x': [], 'y': [], 'state': []} for i in range(num_drones)}
+        self._t0 = time.time()
+        self.tracks = {
+            i: {'x': [], 'y': [], 'state': [], 't': []}
+            for i in range(num_drones)
+        }
         self.targets = []  # (x, y, target_id)
 
         for i in range(num_drones):
@@ -61,14 +73,26 @@ class RunVisualizer(Node):
         t['x'].append(msg.position.x)
         t['y'].append(msg.position.y)
         t['state'].append(msg.state)
+        t['t'].append(time.time() - self._t0)
 
     def _on_target_detected(self, msg):
         self.targets.append((msg.position.x, msg.position.y, msg.target_id))
 
+    def _task_start_index(self, states):
+        """Index of the first TASK_ALLOCATION sample, or None if never."""
+        for idx, s in enumerate(states):
+            if s == 1:
+                return idx
+        return None
+
     def _save_plot(self):
-        fig, ax = plt.subplots(figsize=(8, 6), facecolor=SURFACE)
-        ax.set_facecolor(SURFACE)
+        fig, (ax_map, ax_dist) = plt.subplots(
+            1, 2, figsize=(13, 6), facecolor=SURFACE,
+            gridspec_kw={'width_ratios': [1.4, 1]})
+        ax_map.set_facecolor(SURFACE)
+        ax_dist.set_facecolor(SURFACE)
         any_data = False
+        first_target = self.targets[0] if self.targets else None
 
         for i in range(self.num_drones):
             t = self.tracks[i]
@@ -76,42 +100,88 @@ class RunVisualizer(Node):
                 continue
             any_data = True
             color = DRONE_COLORS[i % len(DRONE_COLORS)]
-            ax.plot(t['x'], t['y'], '-', color=color, linewidth=2,
-                     alpha=0.85, label=f'Drone {i}', zorder=2)
+            r, g, b = hex_to_rgb(color)
+            n = len(t['x'])
 
-            # TASK_ALLOCATION points get a filled marker on the same line —
-            # state is shown by marker presence/size, not a new color.
-            task_x = [x for x, s in zip(t['x'], t['state']) if s == 1]
-            task_y = [y for y, s in zip(t['y'], t['state']) if s == 1]
-            if task_x:
-                ax.scatter(task_x, task_y, s=40, facecolor=color,
-                           edgecolor=SURFACE, linewidth=1, zorder=3)
+            # Faint connecting line for continuity, plus a time-graded
+            # scatter (dim -> full opacity) so direction of travel is
+            # visible at a glance instead of relying on two small markers.
+            ax_map.plot(t['x'], t['y'], '-', color=color, linewidth=1.3,
+                        alpha=0.25, zorder=1)
+            alphas = np.linspace(0.25, 1.0, n)
+            rgba = np.column_stack([
+                np.full(n, r), np.full(n, g), np.full(n, b), alphas])
+            ax_map.scatter(t['x'], t['y'], c=rgba, s=16, zorder=2,
+                           label=f'Drone {i}')
 
-            # Start (hollow) and current (filled, dark ring) position.
-            ax.scatter([t['x'][0]], [t['y'][0]], s=70, facecolor=SURFACE,
-                       edgecolor=color, linewidth=2, zorder=4)
-            ax.scatter([t['x'][-1]], [t['y'][-1]], s=90, facecolor=color,
-                       edgecolor=INK, linewidth=1.2, zorder=5)
+            # Mark the exact moment this drone entered TASK_ALLOCATION.
+            task_idx = self._task_start_index(t['state'])
+            if task_idx is not None:
+                ax_map.scatter(
+                    [t['x'][task_idx]], [t['y'][task_idx]], marker='D',
+                    s=90, facecolor=color, edgecolor=INK, linewidth=1.4,
+                    zorder=5)
+                ax_map.annotate(
+                    'task won', (t['x'][task_idx], t['y'][task_idx]),
+                    textcoords='offset points', xytext=(8, -12),
+                    fontsize=8, color=SECONDARY_INK)
 
-        for x, y, tid in self.targets:
+            # Start (hollow ring) marker — direction is now carried by the
+            # alpha gradient, this just anchors "where it began".
+            ax_map.scatter([t['x'][0]], [t['y'][0]], s=70, facecolor=SURFACE,
+                           edgecolor=color, linewidth=2, zorder=3)
+
+            # Distance-to-target-over-time panel.
+            if first_target is not None:
+                tx, ty, tid = first_target
+                dist = [((x - tx) ** 2 + (y - ty) ** 2) ** 0.5
+                        for x, y in zip(t['x'], t['y'])]
+                ax_dist.plot(t['t'], dist, '-', color=color, linewidth=2,
+                             alpha=0.9, label=f'Drone {i}')
+                if task_idx is not None:
+                    ax_dist.scatter([t['t'][task_idx]], [dist[task_idx]],
+                                    marker='D', s=70, facecolor=color,
+                                    edgecolor=INK, linewidth=1.2, zorder=5)
+
+        if first_target is not None:
+            tx, ty, tid = first_target
             any_data = True
-            ax.scatter([x], [y], marker='*', s=260, facecolor=TARGET_COLOR,
-                       edgecolor=INK, linewidth=1, zorder=6)
-            ax.annotate(f'target {tid}', (x, y), textcoords='offset points',
-                        xytext=(8, 8), fontsize=9, color=SECONDARY_INK)
+            ax_map.scatter([tx], [ty], marker='*', s=260,
+                           facecolor=TARGET_COLOR, edgecolor=INK,
+                           linewidth=1, zorder=6)
+            ax_map.annotate(f'target {tid}', (tx, ty),
+                            textcoords='offset points', xytext=(8, 8),
+                            fontsize=9, color=SECONDARY_INK)
 
-        ax.set_title('Multi-drone coordination — live test run',
-                      color=INK, fontsize=13, fontweight='bold')
-        ax.set_xlabel('x (m)', color=SECONDARY_INK)
-        ax.set_ylabel('y (m)', color=SECONDARY_INK)
-        ax.grid(True, color=GRID, linewidth=0.8)
-        ax.tick_params(colors=SECONDARY_INK)
-        for spine in ax.spines.values():
+        ax_map.set_title('Trajectory (faint = earlier, solid = later)',
+                         color=INK, fontsize=12, fontweight='bold')
+        ax_map.set_xlabel('x (m)', color=SECONDARY_INK)
+        ax_map.set_ylabel('y (m)', color=SECONDARY_INK)
+        ax_map.grid(True, color=GRID, linewidth=0.8)
+        ax_map.tick_params(colors=SECONDARY_INK)
+        for spine in ax_map.spines.values():
             spine.set_color(GRID)
         if any_data:
-            ax.legend(frameon=False, labelcolor=INK, loc='best')
-        ax.set_aspect('equal', adjustable='datalim')
+            ax_map.legend(frameon=False, labelcolor=INK, loc='best')
+        ax_map.set_aspect('equal', adjustable='datalim')
 
+        ax_dist.set_title('Distance to detected target over time',
+                          color=INK, fontsize=12, fontweight='bold')
+        ax_dist.set_xlabel('elapsed time (s)', color=SECONDARY_INK)
+        ax_dist.set_ylabel('distance (m)', color=SECONDARY_INK)
+        ax_dist.grid(True, color=GRID, linewidth=0.8)
+        ax_dist.tick_params(colors=SECONDARY_INK)
+        for spine in ax_dist.spines.values():
+            spine.set_color(GRID)
+        if first_target is None:
+            ax_dist.text(0.5, 0.5, 'no target detected yet',
+                        transform=ax_dist.transAxes, ha='center',
+                        va='center', color=SECONDARY_INK, fontsize=10)
+        else:
+            ax_dist.axhline(0, color=GRID, linewidth=1)
+
+        fig.suptitle('Multi-drone coordination — live test run', color=INK,
+                     fontsize=14, fontweight='bold')
         fig.tight_layout()
         fig.savefig(self.out_path, dpi=150)
         plt.close(fig)
