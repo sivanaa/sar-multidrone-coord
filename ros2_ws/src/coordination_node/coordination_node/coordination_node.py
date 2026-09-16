@@ -118,19 +118,22 @@ class CoordinationNode(Node):
     def _setup_px4_position_subscription(self):
         """Subscribe to PX4's local position via the Micro-XRCE-DDS bridge.
 
-        `px4_msgs` lives in a separate ROS 2 workspace (this project's
-        `hw-ros2` overlay, see ARCHITECTURE.md) rather than this one, so it's
-        only imported here, on demand, and only when `use_px4_position` is
-        set — this way running without that workspace sourced still works
-        exactly as before, just without real telemetry.
+        `px4_msgs` is vendored into this same workspace
+        (`ros2_ws/src/px4_msgs`, gitignored, pinned to a specific PX4 commit
+        — see ARCHITECTURE.md) and built together with `coordination_node`/
+        `coordination_msgs` by the same `colcon build`. The import is still
+        done here, on demand, only when `use_px4_position` is set, so
+        running without `px4_msgs` present (e.g. a checkout that hasn't
+        pulled it) still works exactly as before, just without real
+        telemetry.
         """
         try:
             from px4_msgs.msg import VehicleLocalPosition
         except ImportError:
             self.get_logger().warning(
-                'use_px4_position:=true but px4_msgs is not on this '
-                'workspace overlay (source the hw-ros2 ROS 2 workspace '
-                'before this one) — falling back to internally-simulated '
+                'use_px4_position:=true but px4_msgs is not present in '
+                'ros2_ws/src — rebuild with it vendored in (see '
+                'ARCHITECTURE.md) — falling back to internally-simulated '
                 'position.')
             self.use_px4_position = False
             return
