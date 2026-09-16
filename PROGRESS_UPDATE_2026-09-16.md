@@ -45,29 +45,34 @@ scenario where connectivity to a ground station can't be guaranteed.
 
 ## What the demo runs show — and what they don't yet
 
-Two independent runs of the same scripted scenario (attached) both show the
-same two findings — repeatable, not a one-off fluke:
+Multiple independent runs of the same scripted scenario (attached) all show
+the same two findings — repeatable, not a one-off fluke. The clearest run
+plots each drone's **distance to the detected target over time** alongside
+the spatial trajectory:
+
+- **Before winning a task**: distance genuinely oscillates (e.g. 1.6m to
+  4.5m) as PSO explores — real search dynamics, moving toward and away from
+  the target's area as it balances its own best-found position against the
+  swarm's.
+- **The instant a drone wins a task** (marked with a diamond): the line goes
+  **flat** and never moves again for the rest of the run.
+
+Two precise, fixable findings, not vague weaknesses:
 
 1. **The two drones' search paths converge toward each other** instead of
    spreading to cover different area. Cause: each drone's search-fitness is
    scored relative to *its own* starting point, so the values aren't
    comparable across drones — the algorithm's "move toward whoever's doing
    best" rule ends up pulling drones toward each other's absolute position
-   rather than toward complementary, uncovered ground. Precise, fixable:
-   the search fitness needs to become a shared quality measure (planned:
-   the flood-risk-weighted scoring already used by the existing single-drone
-   pipeline).
-2. **Winning a task doesn't yet move a drone toward it.** CBBA correctly
-   decides *who's responsible* for a detected target, but nothing currently
-   drives that drone to actually navigate there — both runs end with the
-   responsible drone several meters from the target. Expected at this stage:
-   coordination *logic* was the first milestone; coordination *action*
-   (movement/control) is next, not yet built.
-
-Also visible in both runs: the search paths aren't straight lines — they
-curve as the algorithm continuously re-balances between each drone's own
-best-found position and the swarm's, plus a small random exploration term
-every step. That's the real search dynamics running as designed, not noise.
+   rather than toward complementary, uncovered ground. Fix planned: replace
+   the placeholder fitness with a shared quality measure (the flood-risk-
+   weighted scoring already used by the existing single-drone pipeline).
+2. **Winning a task doesn't yet move a drone toward it** — the flat
+   post-diamond line is direct visual proof. CBBA correctly decides *who's
+   responsible* for a detected target, but nothing currently drives that
+   drone to actually navigate there. Expected at this stage: coordination
+   *logic* was the first milestone; coordination *action* (movement/control)
+   is next, not yet built.
 
 ## Next steps
 
