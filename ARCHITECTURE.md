@@ -195,6 +195,13 @@ own "next report" scope:**
   changes than fit this pass. Not silently declared solved; re-measure with
   the plot's min-separation readout after any further change here, don't
   assume it from the logic alone.
+
+  **Re-measured after the navigate.py fix, 2026-09-17**: closest drones got
+  was **1.50m** — exactly at the floor, not under it. One live run isn't
+  proof the residual staleness risk above is gone (it's still real, by the
+  math), but it's a real improvement over the first measurement (0.98m)
+  and a reasonable point to pause this thread. Re-check with the plot's
+  readout again before trusting this at higher speeds or more drones.
 - **Task completion lifecycle** — nothing currently marks a *won* task as
   finished/investigated, so a drone that's actually winning tasks (not just
   losing them via consensus) never returns to SEARCH — its bundle just
