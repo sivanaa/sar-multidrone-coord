@@ -57,6 +57,18 @@ class RunVisualizer(Node):
         }
         self.targets = []  # (x, y, target_id)
 
+        # Minimum-separation tracking: a static trajectory plot can't show
+        # whether two drones were ever close *at the same time* - two dots
+        # sitting on top of each other could be many seconds apart. This
+        # instead checks, every time any drone reports a new position,
+        # its distance to every other drone's most-recently-known position
+        # (the same "last known" basis coordination_node.py's own hard-floor
+        # safety check uses), and keeps the smallest ever seen. That's a
+        # real answer to "did they get too close", not a guess from a plot.
+        self.last_position = {}  # drone_id -> (x, y)
+        self.min_separation_seen = None
+        self.min_separation_info = None  # (drone_a, drone_b, distance)
+
         for i in range(num_drones):
             self.create_subscription(
                 AgentState, f'/drone_{i}/coordination/agent_state',
@@ -75,6 +87,16 @@ class RunVisualizer(Node):
         t['x'].append(msg.position.x)
         t['y'].append(msg.position.y)
         t['state'].append(msg.state)
+
+        self.last_position[drone_id] = (msg.position.x, msg.position.y)
+        for other_id, (ox, oy) in self.last_position.items():
+            if other_id == drone_id:
+                continue
+            distance = ((msg.position.x - ox) ** 2
+                        + (msg.position.y - oy) ** 2) ** 0.5
+            if self.min_separation_seen is None or distance < self.min_separation_seen:
+                self.min_separation_seen = distance
+                self.min_separation_info = (drone_id, other_id, distance)
 
     def _on_target_detected(self, msg):
         self.targets.append((msg.position.x, msg.position.y, msg.target_id))
@@ -206,9 +228,17 @@ class RunVisualizer(Node):
         fig.text(0.5, 0.935,
                  '✕ start   ▲ end/current   ◆ task won   ★ target',
                  ha='center', fontsize=9.5, color=SECONDARY_INK)
-        # Reserve the top ~12% of the figure for the two text elements
-        # above, so they never collide with the per-subplot titles.
-        fig.tight_layout(rect=[0, 0, 1, 0.88])
+        if self.min_separation_info is not None:
+            a, b, d = self.min_separation_info
+            sep_color = TARGET_COLOR if d < 1.5 else SECONDARY_INK
+            fig.text(0.5, 0.905,
+                     f'closest drones ever got: {d:.2f} m '
+                     f'(drone {a} / drone {b}, min-separation floor: 1.5 m)',
+                     ha='center', fontsize=9, color=sep_color)
+        # Reserve the top ~15% of the figure for the text elements above
+        # (title, marker legend, min-separation readout), so they never
+        # collide with the per-subplot titles.
+        fig.tight_layout(rect=[0, 0, 1, 0.85])
         fig.savefig(self.out_path, dpi=150)
         plt.close(fig)
         self.get_logger().info(f'saved {self.out_path}')
