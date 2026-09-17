@@ -60,7 +60,7 @@ python3 "$SCRIPT_DIR/visualize_run.py" --num-drones 2 --out "$OUT" \
   --save-every-sec 2 > /tmp/demo_visualizer.log 2>&1 &
 VIZ_PID=$!
 
-sleep 1.5
+sleep 3
 
 echo "== Launching drone 0 (start: 0,0) =="
 ros2 run coordination_node coordination_node --ros-args \
