@@ -188,11 +188,13 @@ class RunVisualizer(Node):
             ax_dist.axhline(0, color=GRID, linewidth=1)
 
         fig.suptitle('Multi-drone coordination — live test run', color=INK,
-                     fontsize=14, fontweight='bold')
-        fig.text(0.5, 0.965,
+                     fontsize=14, fontweight='bold', y=0.99)
+        fig.text(0.5, 0.935,
                  '✕ start   ▲ end/current   ◆ task won   ★ target',
                  ha='center', fontsize=9.5, color=SECONDARY_INK)
-        fig.tight_layout()
+        # Reserve the top ~12% of the figure for the two text elements
+        # above, so they never collide with the per-subplot titles.
+        fig.tight_layout(rect=[0, 0, 1, 0.88])
         fig.savefig(self.out_path, dpi=150)
         plt.close(fig)
         self.get_logger().info(f'saved {self.out_path}')

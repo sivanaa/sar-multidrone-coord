@@ -51,6 +51,17 @@ pkill -f "lib/coordination_node/coordination_node" 2>/dev/null || true
 pkill -f "tools/visualize_run.py" 2>/dev/null || true
 sleep 1
 
+echo "== Starting visualizer -> $OUT =="
+# Started BEFORE the drones (not after) so its subscriptions are already
+# established when they start publishing - otherwise the very first
+# samples it sees aren't the true initial_x/initial_y launch position,
+# they're wherever each drone has already drifted to during the gap.
+python3 "$SCRIPT_DIR/visualize_run.py" --num-drones 2 --out "$OUT" \
+  --save-every-sec 2 > /tmp/demo_visualizer.log 2>&1 &
+VIZ_PID=$!
+
+sleep 1.5
+
 echo "== Launching drone 0 (start: 0,0) =="
 ros2 run coordination_node coordination_node --ros-args \
   -p drone_id:=0 -p num_drones:=2 -p initial_x:=0.0 -p initial_y:=0.0 \
@@ -62,13 +73,6 @@ ros2 run coordination_node coordination_node --ros-args \
   -p drone_id:=1 -p num_drones:=2 -p initial_x:=5.0 -p initial_y:=5.0 \
   > /tmp/demo_drone1.log 2>&1 &
 DRONE1_PID=$!
-
-sleep 2
-
-echo "== Starting visualizer -> $OUT =="
-python3 "$SCRIPT_DIR/visualize_run.py" --num-drones 2 --out "$OUT" \
-  --save-every-sec 2 > /tmp/demo_visualizer.log 2>&1 &
-VIZ_PID=$!
 
 echo "== Letting PSO search run for ${SEARCH_SECONDS}s =="
 sleep "$SEARCH_SECONDS"
