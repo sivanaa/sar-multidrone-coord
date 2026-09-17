@@ -127,10 +127,14 @@ class RunVisualizer(Node):
                     textcoords='offset points', xytext=(8, -12),
                     fontsize=8, color=SECONDARY_INK)
 
-            # Start (hollow ring) marker — direction is now carried by the
-            # alpha gradient, this just anchors "where it began".
-            ax_map.scatter([t['x'][0]], [t['y'][0]], s=70, facecolor=SURFACE,
-                           edgecolor=color, linewidth=2, zorder=3)
+            # Start (X) and end/current (triangle) markers — direction is
+            # also carried by the alpha gradient, but these give an
+            # unambiguous, named anchor at each end of the path.
+            ax_map.scatter([t['x'][0]], [t['y'][0]], marker='x', s=90,
+                           color=color, linewidth=2.2, zorder=4)
+            ax_map.scatter([t['x'][-1]], [t['y'][-1]], marker='^', s=110,
+                           facecolor=color, edgecolor=INK, linewidth=1.2,
+                           zorder=4)
 
             # Distance-to-target-over-sample panel (x-axis is sample index,
             # not wall-clock time - see note above on why).
@@ -185,6 +189,9 @@ class RunVisualizer(Node):
 
         fig.suptitle('Multi-drone coordination — live test run', color=INK,
                      fontsize=14, fontweight='bold')
+        fig.text(0.5, 0.965,
+                 '✕ start   ▲ end/current   ◆ task won   ★ target',
+                 ha='center', fontsize=9.5, color=SECONDARY_INK)
         fig.tight_layout()
         fig.savefig(self.out_path, dpi=150)
         plt.close(fig)
