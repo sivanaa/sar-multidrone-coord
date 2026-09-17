@@ -77,6 +77,7 @@ ros2_ws/src/
     coordination_node/
       pso.py                  # PSO particle update — real, working
       cbba.py                 # CBBA bundle + consensus — first draft
+      navigate.py             # straight-line fly-to-task, once a task is won
       coordination_node.py    # rclpy Node: state machine, pub/sub wiring
 ```
 
@@ -114,18 +115,19 @@ own "next report" scope:**
   directly heard the originating `TargetDetected`. Fine for a small,
   well-connected fleet; would need fixing for late-joining drones or lossy
   comms.
-- **No navigation-to-target at all, won or not** — CBBA decides *who is
-  responsible* for a task, but nothing anywhere currently drives a drone
-  *toward* the task's position. Winning a task just freezes the drone's PSO
-  motion wherever it happened to be at that moment (see the zero-velocity
-  and state-machine fixes above) — its final position has no necessary
-  relationship to the target's location. Confirmed via live testing
-  2026-09-15/16: a demo run left both drones ~2-3m from the detected target
-  with no path segment showing movement toward it. Separately, PSO's own
-  fitness function has no awareness of target positions either. Fixing this
-  needs new logic: once a task is won, override the movement objective
-  (PSO fitness, or eventually the real command loop) to target the task's
-  position instead of continuing area-search behavior.
+- **Navigation-to-target — fixed 2026-09-17.** CBBA decides *who is
+  responsible* for a task; a new `navigate.py` module now handles actually
+  flying there once a task is won: `coordination_node.py`'s `_tick()` calls
+  `_navigate_to_current_task()` while in `TASK_ALLOCATION`, which moves in
+  a straight line at up to PSO's `max_speed` toward the first task in the
+  drone's CBBA `path`, decelerating smoothly and holding position once
+  within `arrival_radius` (0.3m default) rather than overshooting. Verified
+  with a local numeric dry-run (converges to the target in 4 ticks over a
+  5m gap, no overshoot) before shipping.
+  Still open: only handles the *first* task in the bundle — doesn't chain
+  through multiple committed tasks in order, and doesn't mark a task done
+  on arrival (ties into the task-completion-lifecycle gap below — arriving
+  should eventually trigger that, once it exists).
 - **Task completion lifecycle** — nothing currently marks a *won* task as
   finished/investigated, so a drone that's actually winning tasks (not just
   losing them via consensus) never returns to SEARCH — its bundle just

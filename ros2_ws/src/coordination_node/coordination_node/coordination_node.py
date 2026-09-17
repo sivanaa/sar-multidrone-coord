@@ -21,6 +21,7 @@ from coordination_msgs.msg import AgentState, TargetDetected, BundleState
 
 from coordination_node.pso import ParticleSwarmSearch
 from coordination_node.cbba import CbbaAgent, Task
+from coordination_node.navigate import step_toward
 
 STATE_SEARCH = AgentState.STATE_SEARCH
 STATE_TASK_ALLOCATION = AgentState.STATE_TASK_ALLOCATION
@@ -270,7 +271,26 @@ class CoordinationNode(Node):
         if self.state == STATE_SEARCH:
             self.pso.step(dt=0.5, swarm_best_position=self._swarm_best(),
                           real_position=self._real_position)
+        elif self.state == STATE_TASK_ALLOCATION:
+            self._navigate_to_current_task(dt=0.5)
         self._publish_agent_state()
+
+    def _navigate_to_current_task(self, dt):
+        """Fly toward the first task in this drone's CBBA bundle/path.
+
+        TODO: only handles the first task — doesn't chain through multiple
+        committed tasks in bundle order yet, and doesn't mark a task done
+        on arrival (see the task-completion-lifecycle gap in
+        ARCHITECTURE.md) — it just holds position once close enough.
+        """
+        if not self.cbba.path:
+            return
+        task = self.cbba.tasks.get(self.cbba.path[0])
+        if task is None:
+            return
+        self.pso.state.position = step_toward(
+            self.pso.state.position, task.position, dt,
+            max_speed=self.pso.max_speed, real_position=self._real_position)
 
 
 def main(args=None):
