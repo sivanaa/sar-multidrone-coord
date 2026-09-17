@@ -314,7 +314,9 @@ class CoordinationNode(Node):
             return
         self.pso.state.position = step_toward(
             self.pso.state.position, task.position, dt,
-            max_speed=self.pso.max_speed, real_position=self._real_position)
+            max_speed=self.pso.max_speed, real_position=self._real_position,
+            neighbor_positions=list(self.neighbor_position.values()),
+            min_separation=MIN_SEPARATION_M)
 
 
 def main(args=None):

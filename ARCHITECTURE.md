@@ -153,6 +153,48 @@ own "next report" scope:**
   isn't mistaken for done once real flight starts. Also not covered: more
   than pairwise-sequential resolution (fine for N=2, the real deployment
   target; would need a proper multi-body solve for larger swarms).
+
+  **Two more real gaps found via live testing, same day.** Added the
+  min-separation readout to `visualize_run.py` specifically because a
+  static trajectory plot can't show whether two drones were ever close *at
+  the same time* — the first live run after adding the layers above
+  measured drones passing **0.98m apart**, under the 1.5m floor, proving
+  the two layers above weren't actually sufficient as first written:
+  1. `navigate.py` (the TASK_ALLOCATION movement) had **zero neighbor
+     awareness at all** — only the post-hoc hard floor was catching a
+     fast (up to 3 m/s) direct approach, one tick too late. Fixed by giving
+     `navigate.py` the same kind of proactive repulsion PSO already had.
+  2. Pure radial repulsion (straight-line push-away) does nothing when a
+     neighbor sits directly on the line to the target — the push-away and
+     the pull-toward-target cancel along the same axis, with no sideways
+     component to actually route around it. Confirmed via a local dry run:
+     radial-only repulsion still passed 0.17m from a neighbor planted
+     directly in the path. Fixed by adding a tangential ("go around")
+     component alongside the radial one, always deflecting the same
+     rotational way so the path curves smoothly instead of jittering.
+     Re-verified via dry run: with both the tangential term and the hard
+     floor chained together (exactly as `coordination_node.py` runs them
+     every tick), a drone passing a **stationary** neighbor now holds
+     exactly at the 1.5m floor instead of cutting inside it.
+
+  **Residual, currently-unfixed risk**: the dry run above used a
+  *stationary* neighbor. When both drones are moving, each one's avoidance
+  math is based on the other's *last broadcast* position, which can be
+  nearly a full 0.5s tick stale by the time it's acted on. If both are
+  closing on each other during that window, the true simultaneous distance
+  can still dip under the floor even though each side's own reasoning is
+  internally consistent — this is why the live measurement above still
+  showed a violation even with real navigation happening (not the
+  zero-awareness bug — that run predates the navigate.py fix, but the
+  staleness effect is separate and remains). This isn't a bug to patch, it's
+  a fundamental limit of a 0.5s update tick at up to 3 m/s (worst-case
+  possible closing distance within one tick, if both approach head-on, is
+  up to 2 × 3.0 × 0.5 = 3m — bigger than the whole intended margin).
+  Meaningfully closing this further needs either a much faster control
+  loop, or velocity-aware (not just position-aware) prediction — bigger
+  changes than fit this pass. Not silently declared solved; re-measure with
+  the plot's min-separation readout after any further change here, don't
+  assume it from the logic alone.
 - **Task completion lifecycle** — nothing currently marks a *won* task as
   finished/investigated, so a drone that's actually winning tasks (not just
   losing them via consensus) never returns to SEARCH — its bundle just

@@ -15,13 +15,23 @@ import math
 
 
 def step_toward(position, target, dt, max_speed, arrival_radius=0.3,
-                 real_position=None):
+                 real_position=None, neighbor_positions=None,
+                 min_separation=1.5, separation_strength=2.5):
     """Advance one tick toward `target`. Returns the new (x, y).
 
     `real_position`, when given, is real telemetry and is reported as the
     actual position instead of the internally-integrated one — mirrors
     pso.py's `step` so both movement modes behave consistently once real
     PX4 position is wired in.
+
+    `neighbor_positions`, when given, blends in a repulsion away from any
+    drone closer than `min_separation`, same shape as pso.py's soft
+    separation term. Without this, a fast direct approach to a task has
+    zero awareness of other drones and only gets corrected *after* getting
+    too close, by coordination_node.py's hard floor (separation.py) — which
+    reacts once per tick and isn't fast enough against a high-speed pass.
+    Confirmed live 2026-09-17: two drones measured 0.98m apart (under the
+    1.5m floor) with this term absent.
     """
     x, y = real_position if real_position is not None else position
     tx, ty = target
@@ -35,8 +45,35 @@ def step_toward(position, target, dt, max_speed, arrival_radius=0.3,
     # the final tick rather than overshot and then oscillated around.
     speed = min(max_speed, distance / dt) if dt > 0 else max_speed
     ux, uy = dx / distance, dy / distance
-    new_x = x + ux * speed * dt
-    new_y = y + uy * speed * dt
+    vx, vy = ux * speed, uy * speed
+
+    for nx, ny in neighbor_positions or []:
+        rx, ry = x - nx, y - ny
+        rdist = math.hypot(rx, ry)
+        if rdist >= min_separation or rdist == 0:
+            continue
+        push = separation_strength * (min_separation - rdist) / min_separation
+        ux_r, uy_r = rx / rdist, ry / rdist
+        # Radial (straight away) plus a tangential ("go around") component.
+        # Radial alone does nothing useful when the neighbor sits directly
+        # on the line to the target: the away-push and the toward-target
+        # pull cancel along the same axis, leaving no sideways component to
+        # actually route around it (confirmed by a dry run that still
+        # passed 0.17m from a neighbor planted directly in the path with
+        # only the radial term). Always deflecting the same rotational way
+        # (never randomly left-or-right) makes the path curve smoothly
+        # around instead of jittering between sides.
+        vx += ux_r * push - uy_r * push
+        vy += uy_r * push + ux_r * push
+
+    blended_speed = math.hypot(vx, vy)
+    if blended_speed > max_speed:
+        scale = max_speed / blended_speed
+        vx *= scale
+        vy *= scale
+
+    new_x = x + vx * dt
+    new_y = y + vy * dt
 
     if real_position is not None:
         return real_position
