@@ -109,6 +109,20 @@ class RunVisualizer(Node):
             # visible at a glance instead of relying on two small markers.
             ax_map.plot(t['x'], t['y'], '-', color=color, linewidth=1.3,
                         alpha=0.25, zorder=1)
+
+            # Small direction arrows along the path, at a handful of evenly
+            # spaced points, so which way the drone was moving is legible at
+            # a glance rather than only inferable from the alpha gradient.
+            arrow_stride = max(1, n // 6)
+            for idx in range(0, n - 1, arrow_stride):
+                ax_map.annotate(
+                    '', xy=(t['x'][idx + 1], t['y'][idx + 1]),
+                    xytext=(t['x'][idx], t['y'][idx]),
+                    arrowprops=dict(arrowstyle='-|>', color=color, alpha=0.6,
+                                     shrinkA=0, shrinkB=0, mutation_scale=11,
+                                     linewidth=0),
+                    zorder=2)
+
             alphas = np.linspace(0.25, 1.0, n)
             rgba = np.column_stack([
                 np.full(n, r), np.full(n, g), np.full(n, b), alphas])

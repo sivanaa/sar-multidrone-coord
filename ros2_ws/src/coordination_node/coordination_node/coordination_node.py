@@ -22,6 +22,9 @@ from coordination_msgs.msg import AgentState, TargetDetected, BundleState
 from coordination_node.pso import ParticleSwarmSearch
 from coordination_node.cbba import CbbaAgent, Task
 from coordination_node.navigate import step_toward
+from coordination_node.separation import enforce_min_separation
+
+MIN_SEPARATION_M = 1.5  # must match pso.py's default; see separation.py
 
 STATE_SEARCH = AgentState.STATE_SEARCH
 STATE_TASK_ALLOCATION = AgentState.STATE_TASK_ALLOCATION
@@ -85,6 +88,7 @@ class CoordinationNode(Node):
             self._setup_px4_position_subscription()
 
         self.neighbor_best = {}  # drone_id -> ((x, y), fitness)
+        self.neighbor_position = {}  # drone_id -> (x, y), for separation only
         self._next_task_id = self.drone_id * 100000  # cheap collision-free id space
 
         self.agent_state_pub = self.create_publisher(
@@ -159,6 +163,7 @@ class CoordinationNode(Node):
     def _on_agent_state(self, msg: AgentState):
         self.neighbor_best[msg.drone_id] = (
             (msg.best_position.x, msg.best_position.y), msg.best_fitness)
+        self.neighbor_position[msg.drone_id] = (msg.position.x, msg.position.y)
 
     def _swarm_best(self):
         best_pos = self.pso.state.best_position
@@ -270,10 +275,29 @@ class CoordinationNode(Node):
     def _tick(self):
         if self.state == STATE_SEARCH:
             self.pso.step(dt=0.5, swarm_best_position=self._swarm_best(),
+                          neighbor_positions=list(self.neighbor_position.values()),
                           real_position=self._real_position)
         elif self.state == STATE_TASK_ALLOCATION:
             self._navigate_to_current_task(dt=0.5)
+        self._enforce_collision_safety()
         self._publish_agent_state()
+
+    def _enforce_collision_safety(self):
+        """Hard floor, applied after every tick regardless of what produced
+        the candidate position. See separation.py for why this exists
+        separately from PSO's softer repulsion.
+
+        Skipped when real telemetry is active: a real vehicle's reported
+        position is ground truth, not something we can teleport away from a
+        neighbor — enforcing a real hard floor there means constraining the
+        *commanded* setpoint before it's sent, which doesn't exist yet (see
+        the offboard-command-loop item in ARCHITECTURE.md's next steps).
+        """
+        if self._real_position is not None:
+            return
+        self.pso.state.position = enforce_min_separation(
+            self.pso.state.position, list(self.neighbor_position.values()),
+            MIN_SEPARATION_M)
 
     def _navigate_to_current_task(self, dt):
         """Fly toward the first task in this drone's CBBA bundle/path.

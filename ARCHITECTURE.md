@@ -128,6 +128,31 @@ own "next report" scope:**
   through multiple committed tasks in order, and doesn't mark a task done
   on arrival (ties into the task-completion-lifecycle gap below — arriving
   should eventually trigger that, once it exists).
+- **Collision avoidance — added 2026-09-17.** Raised directly by a safety
+  question: does the drones' observed path-convergence behavior (see the
+  demo plots) mean they could actually collide? Answer at the time was yes —
+  neither PSO, CBBA, nor `navigate.py` had any notion of other drones'
+  physical positions; PSO's social term actively *pulls* particles toward
+  each other, which is the opposite of avoidance. Two layers now address
+  this:
+  - **Soft**: `pso.py`'s `_separation_velocity` adds a repulsion term once a
+    neighbor is within `min_separation` (1.5m default), growing the closer
+    they get. Only active during SEARCH; a gradual nudge, not a guarantee.
+  - **Hard**: `separation.py`'s `enforce_min_separation` is applied to the
+    resulting position every tick, in both SEARCH and TASK_ALLOCATION
+    (`coordination_node.py`'s `_enforce_collision_safety`, called from
+    `_tick()` after either branch) — if two drones would end up closer than
+    `MIN_SEPARATION_M`, one is pushed back out to exactly that distance. This
+    is what actually closes the gap; the soft term just makes it rare for
+    the hard floor to have to act.
+  Explicitly **not** covered: real PX4-controlled flight — the hard floor
+  currently adjusts a *simulated* position directly, which only makes sense
+  while nothing is actually flying the vehicle. Once the offboard command
+  loop exists (see "Next steps"), this needs to become a constraint on the
+  *commanded* setpoint instead, not a position teleport — noted so this
+  isn't mistaken for done once real flight starts. Also not covered: more
+  than pairwise-sequential resolution (fine for N=2, the real deployment
+  target; would need a proper multi-body solve for larger swarms).
 - **Task completion lifecycle** — nothing currently marks a *won* task as
   finished/investigated, so a drone that's actually winning tasks (not just
   losing them via consensus) never returns to SEARCH — its bundle just
@@ -240,6 +265,20 @@ ros2 topic pub --once /drone_1/coordination/target_detected coordination_msgs/ms
 Use a fresh, never-before-used `target_id` each time — reusing one that's already in a
 drone's `tasks` dict won't exercise the "new task" path.
 
+**To see genuine competitive bidding** (both drones actually bid, not just one hearing
+about it) — publish the *same* task to both drones' own topics, since a node never hears
+its own topic:
+```
+ros2 topic pub --once /drone_0/coordination/target_detected coordination_msgs/msg/TargetDetected "{drone_id: 0, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
+ros2 topic pub --once /drone_1/coordination/target_detected coordination_msgs/msg/TargetDetected "{drone_id: 1, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
+```
+Each message is only heard by the *other* drone, so this leaves both drones having directly
+received the detection and both calling `build_bundle`/broadcasting a real bid — CBBA
+consensus (`cbba.py`) then resolves the winner by bid + freshness, same as it would with a
+real shared detection. `demo_run.sh` does exactly this. Fixed 2026-09-17 — earlier demo runs
+published to only one drone's topic, so only the *other* drone ever knew the task existed;
+it wasn't competitive bidding at all, just one-sided awareness.
+
 **4. Watch the reaction** — start this *before* step 3 so you don't miss the one-shot
 reaction (topics are volatile/non-latched, no replay for late subscribers):
 ```
@@ -281,5 +320,8 @@ timestamp for the same task) rather than it happening naturally.
 3. Once real position is confirmed flowing, decide on and build the command
    loop (PX4 offboard velocity/position setpoints + arm/offboard-mode
    sequencing) so PSO's output actually drives the vehicle — currently nothing
-   does.
+   does. **Must carry collision safety with it**: today's hard floor
+   (`separation.py`) teleports a simulated position, which stops making sense
+   once something is actually flying — it needs to become a constraint on the
+   commanded setpoint instead (see "Collision avoidance" above).
 4. Tune the bid function and fitness function against actual two-drone runs.

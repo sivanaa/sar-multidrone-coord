@@ -77,7 +77,17 @@ DRONE1_PID=$!
 echo "== Letting PSO search run for ${SEARCH_SECONDS}s =="
 sleep "$SEARCH_SECONDS"
 
-echo "== Publishing simulated target detection (drone 1 -> target at 3,4) =="
+echo "== Publishing simulated target detection to BOTH drones (target at 3,4) =="
+# A node never subscribes to its own topic (see coordination_node.py), so a
+# single publish only reaches the *other* drone - that's why earlier runs
+# only ever showed drone 0 reacting. Publishing the same task to both
+# drones' own topics means each one is heard by the other drone, so both
+# independently call add_task/build_bundle and broadcast a real bid -
+# genuine CBBA competition, resolved by consensus (cbba.py), rather than
+# only one drone ever knowing the task exists.
+ros2 topic pub --once /drone_0/coordination/target_detected \
+  coordination_msgs/msg/TargetDetected \
+  "{drone_id: 0, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
 ros2 topic pub --once /drone_1/coordination/target_detected \
   coordination_msgs/msg/TargetDetected \
   "{drone_id: 1, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
