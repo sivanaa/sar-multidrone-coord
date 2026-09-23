@@ -343,6 +343,23 @@ whole run as a playable animation once the process stops, instead of only the pe
 PNG's cumulative "so far" snapshot. Added 2026-09-23 — a static plot doesn't actually show
 *how* the drones moved, just where they ended up.
 
+**Watching it live, while the run is still in progress**: `tools/viewer.html` is a small
+static page (no server framework, no build step) that polls `/demo_run.png` every 2s with a
+cache-busting query string — it just shows whatever `visualize_run.py`'s own periodic timer
+has most recently saved. Serve the repo root with Python's built-in server and reach it from
+your laptop over an SSH tunnel (the gpu server has no GUI, so a browser is the actual
+"application" here):
+```
+# on the server, in its own window, started any time (independent of demo_run.sh):
+cd ~/sivana/sar-multidrone-coord && python3 -m http.server 8000
+
+# on the laptop, in its own window, kept open (this is the tunnel, it blocks):
+ssh -N -L 8000:localhost:8000 uavintern@140.123.105.233 -p 42000
+```
+Then open `http://localhost:8000/ros2_ws/tools/viewer.html` in a laptop browser tab and
+run `demo_run.sh` as usual in a third window — the page updates on its own as the run
+progresses. Added 2026-09-23.
+
 **4. Watch the reaction** — start this *before* step 3 so you don't miss the one-shot
 reaction (topics are volatile/non-latched, no replay for late subscribers):
 ```

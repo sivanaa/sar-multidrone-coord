@@ -1,0 +1,47 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Multi-drone coordination — live view</title>
+  <style>
+    html, body {
+      margin: 0; height: 100%; background: #111;
+      display: flex; justify-content: center; align-items: center;
+    }
+    img { max-width: 100%; max-height: 100%; }
+    #status {
+      position: fixed; top: 8px; left: 12px;
+      font: 12px monospace; color: #9a9a9a;
+    }
+  </style>
+</head>
+<body>
+  <!--
+    Polls the demo's PNG (re-saved every couple seconds by
+    visualize_run.py's own timer while a run is in progress) with a
+    cache-busting query string, so the browser always fetches the latest
+    file instead of showing a stale cached copy. Served with a plain
+    `python3 -m http.server` from the repo root - no app server, build
+    step, or extra dependency needed.
+  -->
+  <div id="status">connecting...</div>
+  <img id="frame" src="/demo_run.png" onerror="this.style.opacity=0.3">
+  <script>
+    const img = document.getElementById('frame');
+    const status = document.getElementById('status');
+    setInterval(() => {
+      const next = new Image();
+      const url = '/demo_run.png?t=' + Date.now();
+      next.onload = () => {
+        img.src = url;
+        img.style.opacity = 1;
+        status.textContent = 'last updated: ' + new Date().toLocaleTimeString();
+      };
+      next.onerror = () => {
+        status.textContent = 'waiting for demo_run.png ...';
+      };
+      next.src = url;
+    }, 2000);
+  </script>
+</body>
+</html>
