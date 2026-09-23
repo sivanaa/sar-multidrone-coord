@@ -337,6 +337,12 @@ ros2 topic pub --once /drone_1/coordination/target_detected coordination_msgs/ms
 Use a fresh, never-before-used `target_id` each time — reusing one that's already in a
 drone's `tasks` dict won't exercise the "new task" path.
 
+**Watching it, not just reading the end state**: `tools/visualize_run.py --gif-out
+<path>.gif` (wired into `demo_run.sh` by default, alongside the existing PNG) renders the
+whole run as a playable animation once the process stops, instead of only the periodic
+PNG's cumulative "so far" snapshot. Added 2026-09-23 — a static plot doesn't actually show
+*how* the drones moved, just where they ended up.
+
 **4. Watch the reaction** — start this *before* step 3 so you don't miss the one-shot
 reaction (topics are volatile/non-latched, no replay for late subscribers):
 ```

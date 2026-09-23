@@ -15,6 +15,7 @@ set -e
 OUT="${1:-$HOME/sivana/sar-multidrone-coord/demo_run.png}"
 SEARCH_SECONDS="${2:-15}"
 REACT_SECONDS="${3:-10}"
+GIF_OUT="${OUT%.png}.gif"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 DRONE0_PID=""
@@ -33,7 +34,15 @@ VIZ_PID=""
 cleanup() {
   [ -n "$DRONE0_PID" ] && kill "$DRONE0_PID" 2>/dev/null
   [ -n "$DRONE1_PID" ] && kill "$DRONE1_PID" 2>/dev/null
-  [ -n "$VIZ_PID" ] && kill "$VIZ_PID" 2>/dev/null
+  if [ -n "$VIZ_PID" ]; then
+    kill "$VIZ_PID" 2>/dev/null
+    # The visualizer's SIGTERM handler renders and saves a GIF of the whole
+    # run before it actually exits (see visualize_run.py) - without this
+    # wait, the script (and this trap) would return to the shell prompt
+    # while that render is still in progress, and an immediate scp would
+    # grab a truncated/missing file.
+    wait "$VIZ_PID" 2>/dev/null
+  fi
   pkill -f "lib/coordination_node/coordination_node" 2>/dev/null
   pkill -f "tools/visualize_run.py" 2>/dev/null
   return 0
@@ -57,6 +66,7 @@ echo "== Starting visualizer -> $OUT =="
 # samples it sees aren't the true initial_x/initial_y launch position,
 # they're wherever each drone has already drifted to during the gap.
 python3 "$SCRIPT_DIR/visualize_run.py" --num-drones 2 --out "$OUT" \
+  --gif-out "$GIF_OUT" \
   --save-every-sec 2 > /tmp/demo_visualizer.log 2>&1 &
 VIZ_PID=$!
 
@@ -94,5 +104,7 @@ ros2 service call /drone_0/coordination/detect_target \
 echo "== Letting the CBBA reaction play out for ${REACT_SECONDS}s =="
 sleep "$REACT_SECONDS"
 
-echo "== Done. Demo plot: $OUT =="
-# cleanup() runs automatically here via the EXIT trap.
+echo "== Stopping and rendering GIF (a few seconds) =="
+echo "== Done. Demo plot: $OUT  |  Animation: $GIF_OUT =="
+# cleanup() runs automatically here via the EXIT trap, and now blocks until
+# the visualizer has actually finished writing $GIF_OUT (see cleanup()).

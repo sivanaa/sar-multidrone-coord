@@ -5,20 +5,30 @@ to-target over time). No GUI/X11 needed on the server — open the PNG in an
 editor connected to this machine (e.g. VS Code over Remote-SSH, or scp'd to a
 local copy) and refresh it to watch a run progress.
 
+Pass --gif-out to also get a playable animation of the whole run, rendered
+once the process is stopped (SIGINT/SIGTERM) — this is the better way to
+actually see how the drones behaved, since the periodic PNG only ever shows
+a cumulative "so far" snapshot, not motion.
+
 Run after sourcing ros2_ws/install/setup.bash, alongside the
 coordination_node instances you want to visualize:
 
-    python3 tools/visualize_run.py --num-drones 2 --out /tmp/coord_demo.png
+    python3 tools/visualize_run.py --num-drones 2 --out /tmp/coord_demo.png \
+        --gif-out /tmp/coord_demo.gif
 
 Requires matplotlib in the active environment (`pip install matplotlib` if
-it's missing).
+it's missing) — and Pillow for --gif-out specifically (`pip install pillow`
+if `anim.save(...)` errors out; Pillow isn't always pulled in automatically
+alongside matplotlib).
 """
 
 import argparse
+import signal
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation, PillowWriter
 import numpy as np
 
 import rclpy
@@ -43,10 +53,11 @@ def hex_to_rgb(hex_color):
 
 
 class RunVisualizer(Node):
-    def __init__(self, num_drones, out_path, save_every_sec):
+    def __init__(self, num_drones, out_path, save_every_sec, gif_out=None):
         super().__init__('run_visualizer')
         self.num_drones = num_drones
         self.out_path = out_path
+        self.gif_out = gif_out
         # x-axis for the distance panel is sample index, not wall-clock
         # time - an index is guaranteed strictly increasing by construction
         # (it's just each list's own position), so it can't produce an
@@ -108,28 +119,37 @@ class RunVisualizer(Node):
                 return idx
         return None
 
-    def _save_plot(self):
-        fig, (ax_map, ax_dist) = plt.subplots(
-            1, 2, figsize=(13, 6), facecolor=SURFACE,
-            gridspec_kw={'width_ratios': [1.4, 1]})
+    def _draw(self, ax_map, ax_dist, limit=None):
+        """Render one frame of the trajectory + distance panels, using only
+        the first `limit` samples of each drone's history (None = all of
+        it). Shared by the periodic PNG snapshot (limit=None, i.e. "so far")
+        and each GIF frame (limit=that frame's sample count), so the two
+        views can never drift apart in how they draw the same data."""
         ax_map.set_facecolor(SURFACE)
         ax_dist.set_facecolor(SURFACE)
         any_data = False
+        # Simplification: the target marker/label is shown from frame 1
+        # onward even though it isn't actually detected until partway
+        # through the run, since it's a fixed point (not something whose
+        # movement over time matters) and there is normally only one per
+        # demo run. Good enough for this tool; would need a real detection
+        # timestamp per target to animate accurately if that changes.
         first_target = self.targets[0] if self.targets else None
 
         for i in range(self.num_drones):
             t = self.tracks[i]
-            if not t['x']:
+            n = len(t['x']) if limit is None else min(limit, len(t['x']))
+            if n == 0:
                 continue
             any_data = True
             color = DRONE_COLORS[i % len(DRONE_COLORS)]
             r, g, b = hex_to_rgb(color)
-            n = len(t['x'])
+            tx_hist, ty_hist, tstate_hist = t['x'][:n], t['y'][:n], t['state'][:n]
 
             # Faint connecting line for continuity, plus a time-graded
             # scatter (dim -> full opacity) so direction of travel is
             # visible at a glance instead of relying on two small markers.
-            ax_map.plot(t['x'], t['y'], '-', color=color, linewidth=1.3,
+            ax_map.plot(tx_hist, ty_hist, '-', color=color, linewidth=1.3,
                         alpha=0.25, zorder=1)
 
             # Small direction arrows along the path, at a handful of evenly
@@ -138,8 +158,8 @@ class RunVisualizer(Node):
             arrow_stride = max(1, n // 6)
             for idx in range(0, n - 1, arrow_stride):
                 ax_map.annotate(
-                    '', xy=(t['x'][idx + 1], t['y'][idx + 1]),
-                    xytext=(t['x'][idx], t['y'][idx]),
+                    '', xy=(tx_hist[idx + 1], ty_hist[idx + 1]),
+                    xytext=(tx_hist[idx], ty_hist[idx]),
                     arrowprops=dict(arrowstyle='-|>', color=color, alpha=0.6,
                                      shrinkA=0, shrinkB=0, mutation_scale=11,
                                      linewidth=0),
@@ -148,27 +168,27 @@ class RunVisualizer(Node):
             alphas = np.linspace(0.25, 1.0, n)
             rgba = np.column_stack([
                 np.full(n, r), np.full(n, g), np.full(n, b), alphas])
-            ax_map.scatter(t['x'], t['y'], c=rgba, s=16, zorder=2,
+            ax_map.scatter(tx_hist, ty_hist, c=rgba, s=16, zorder=2,
                            label=f'Drone {i}')
 
             # Mark the exact moment this drone entered TASK_ALLOCATION.
-            task_idx = self._task_start_index(t['state'])
+            task_idx = self._task_start_index(tstate_hist)
             if task_idx is not None:
                 ax_map.scatter(
-                    [t['x'][task_idx]], [t['y'][task_idx]], marker='D',
+                    [tx_hist[task_idx]], [ty_hist[task_idx]], marker='D',
                     s=90, facecolor=color, edgecolor=INK, linewidth=1.4,
                     zorder=5)
                 ax_map.annotate(
-                    'task won', (t['x'][task_idx], t['y'][task_idx]),
+                    'task won', (tx_hist[task_idx], ty_hist[task_idx]),
                     textcoords='offset points', xytext=(8, -12),
                     fontsize=8, color=SECONDARY_INK)
 
             # Start (X) and end/current (triangle) markers — direction is
             # also carried by the alpha gradient, but these give an
             # unambiguous, named anchor at each end of the path.
-            ax_map.scatter([t['x'][0]], [t['y'][0]], marker='x', s=90,
+            ax_map.scatter([tx_hist[0]], [ty_hist[0]], marker='x', s=90,
                            color=color, linewidth=2.2, zorder=4)
-            ax_map.scatter([t['x'][-1]], [t['y'][-1]], marker='^', s=110,
+            ax_map.scatter([tx_hist[-1]], [ty_hist[-1]], marker='^', s=110,
                            facecolor=color, edgecolor=INK, linewidth=1.2,
                            zorder=4)
 
@@ -177,7 +197,7 @@ class RunVisualizer(Node):
             if first_target is not None:
                 tx, ty, tid = first_target
                 dist = [((x - tx) ** 2 + (y - ty) ** 2) ** 0.5
-                        for x, y in zip(t['x'], t['y'])]
+                        for x, y in zip(tx_hist, ty_hist)]
                 sample_idx = list(range(len(dist)))
                 ax_dist.plot(sample_idx, dist, '-', color=color, linewidth=2,
                              alpha=0.9, label=f'Drone {i}')
@@ -223,6 +243,9 @@ class RunVisualizer(Node):
         else:
             ax_dist.axhline(0, color=GRID, linewidth=1)
 
+    def _finish_figure(self, fig):
+        """Figure-level chrome (title, marker legend, min-separation
+        readout) shared by both the periodic PNG and every GIF frame."""
         fig.suptitle('Multi-drone coordination — live test run', color=INK,
                      fontsize=14, fontweight='bold', y=0.99)
         fig.text(0.5, 0.935,
@@ -239,9 +262,55 @@ class RunVisualizer(Node):
         # (title, marker legend, min-separation readout), so they never
         # collide with the per-subplot titles.
         fig.tight_layout(rect=[0, 0, 1, 0.85])
+
+    def _save_plot(self):
+        fig, (ax_map, ax_dist) = plt.subplots(
+            1, 2, figsize=(13, 6), facecolor=SURFACE,
+            gridspec_kw={'width_ratios': [1.4, 1]})
+        self._draw(ax_map, ax_dist, limit=None)
+        self._finish_figure(fig)
         fig.savefig(self.out_path, dpi=150)
         plt.close(fig)
         self.get_logger().info(f'saved {self.out_path}')
+
+    def save_gif(self):
+        """Render the whole recorded run as a playable animation, so you can
+        watch how the drones actually moved instead of reading a single
+        cumulative snapshot. Called once, when the process is stopping
+        (see main()'s signal handling) - not on the periodic timer, since
+        re-rendering ~40 frames every couple seconds would be wasteful and
+        isn't needed until the run is over anyway."""
+        if not self.gif_out:
+            return
+        max_len = max((len(t['x']) for t in self.tracks.values()), default=0)
+        if max_len == 0:
+            self.get_logger().warning('save_gif: no data recorded, skipping')
+            return
+
+        frame_count = min(max_len, 40)
+        frame_limits = sorted(set(
+            int(round(x)) for x in np.linspace(1, max_len, frame_count)))
+        # Hold on the final frame for ~1.5s instead of cutting straight to
+        # the loop point, so the end state is actually readable.
+        frame_limits += [max_len] * 6
+
+        fig, (ax_map, ax_dist) = plt.subplots(
+            1, 2, figsize=(13, 6), facecolor=SURFACE,
+            gridspec_kw={'width_ratios': [1.4, 1]})
+
+        def update(limit):
+            ax_map.clear()
+            ax_dist.clear()
+            for txt in list(fig.texts):
+                txt.remove()
+            self._draw(ax_map, ax_dist, limit=limit)
+            self._finish_figure(fig)
+
+        anim = FuncAnimation(fig, update, frames=frame_limits)
+        anim.save(self.gif_out, writer=PillowWriter(fps=5))
+        plt.close(fig)
+        self.get_logger().info(
+            f'saved {self.gif_out} ({len(frame_limits)} frames)')
 
 
 def main():
@@ -249,15 +318,37 @@ def main():
     parser.add_argument('--num-drones', type=int, default=2)
     parser.add_argument('--out', type=str, default='/tmp/coord_demo.png')
     parser.add_argument('--save-every-sec', type=float, default=2.0)
+    parser.add_argument(
+        '--gif-out', type=str, default=None,
+        help='If set, save an animated GIF of the whole run to this path '
+             'once the process is stopped (SIGINT/SIGTERM), so you can '
+             'watch the run play back instead of reading one static plot.')
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
-    node = RunVisualizer(args.num_drones, args.out, args.save_every_sec)
+    node = RunVisualizer(
+        args.num_drones, args.out, args.save_every_sec, args.gif_out)
+
+    # demo_run.sh stops this process with `kill`/`pkill` (SIGTERM), not
+    # Ctrl-C - without catching it, save_gif() below would never run and
+    # the whole point of watching the run afterward would be lost. Calling
+    # rclpy.shutdown() here makes rclpy.ok() go false, which is what
+    # actually ends spin()'s loop (cleanly, no exception), same mechanism
+    # ROS2's own examples use for graceful shutdown on a signal.
+    def _handle_stop_signal(signum, frame):
+        rclpy.shutdown()
+
+    signal.signal(signal.SIGTERM, _handle_stop_signal)
+    signal.signal(signal.SIGINT, _handle_stop_signal)
+
     try:
         rclpy.spin(node)
     finally:
+        node._save_plot()
+        node.save_gif()
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
