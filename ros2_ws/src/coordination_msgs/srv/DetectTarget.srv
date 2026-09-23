@@ -1,0 +1,12 @@
+# Trigger this drone's own report_target_detected() through the real code
+# path (self-bid + broadcast to the fleet), instead of faking a detection by
+# publishing directly onto the topic from outside the node. A node never
+# receives its own published topic messages, so an external `ros2 topic
+# pub` onto /drone_X/coordination/target_detected only reaches the OTHER
+# drones — it skips the detecting drone's own self-bid entirely. Calling
+# this service is what perception code (or a test) should do instead.
+geometry_msgs/Point position
+string target_type
+float32 confidence
+---
+uint32 target_id

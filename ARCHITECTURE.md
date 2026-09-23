@@ -304,29 +304,38 @@ becoming nonzero as it moves. If it stays at exactly `(0,0,0)` forever, somethin
 with PSO's initialization or the fitness function — this is exactly how the zero-velocity
 deadlock (2026-09-15) was caught.
 
-**3. Trigger the CBBA phase without needing a real detection pipeline** — publish a fake
-`TargetDetected` directly onto another drone's topic. Since every node subscribes to every
-*other* drone's topics (not its own), this convincingly simulates "drone 1 detected
-something" without drone 1's real node needing to be running:
+**3. Trigger the CBBA phase, with every drone (including the detector) bidding** — call
+the `detect_target` service on the drone that "sees" the target. This drives
+`report_target_detected()`, the same entry point real perception code would call: it
+self-bids inside that drone's own process *and* publishes `TargetDetected` so every other
+drone's subscription fires too. One call is enough for the whole fleet to bid — no need to
+fake multiple detections:
+```
+ros2 service call /drone_0/coordination/detect_target coordination_msgs/srv/DetectTarget "{position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
+```
+The response's `target_id` is auto-assigned (drone 0's ids start at 0, drone 1's at
+100000, etc. — see `_next_task_id` in `coordination_node.py`), not something you choose.
+`demo_run.sh` does exactly this now. **Fixed 2026-09-23** — until then, the only way to
+trigger a detection from outside the node was `ros2 topic pub` directly onto
+`/drone_X/coordination/target_detected`, which a node never hears on its *own* topic (ROS2
+nodes don't receive their own publications) and so never made the detecting drone bid on
+its own find. The demo's earlier workaround was to publish the same task onto *both*
+drones' topics to fake "both detected it" — that produced real competitive bidding for
+exactly 2 drones, but doesn't generalize (at N drones you'd need N fake publishes for one
+real detection) and doesn't match how a real detection actually happens (one drone sees
+it, everyone bids). The `detect_target` service fixes both: it's the real single-detection
+code path, and it scales to any fleet size for free since every other drone already
+subscribes to the detecting drone's topic.
+
+If you need to simulate a detection *without* the detecting drone's real node running at
+all (e.g. testing drone 1's reaction in isolation) — a lower-level `ros2 topic pub` directly
+onto the topic still works for that, it just won't produce a self-bid from the "detector"
+since there isn't a real one:
 ```
 ros2 topic pub --once /drone_1/coordination/target_detected coordination_msgs/msg/TargetDetected "{drone_id: 1, target_id: 43, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
 ```
 Use a fresh, never-before-used `target_id` each time — reusing one that's already in a
 drone's `tasks` dict won't exercise the "new task" path.
-
-**To see genuine competitive bidding** (both drones actually bid, not just one hearing
-about it) — publish the *same* task to both drones' own topics, since a node never hears
-its own topic:
-```
-ros2 topic pub --once /drone_0/coordination/target_detected coordination_msgs/msg/TargetDetected "{drone_id: 0, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
-ros2 topic pub --once /drone_1/coordination/target_detected coordination_msgs/msg/TargetDetected "{drone_id: 1, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
-```
-Each message is only heard by the *other* drone, so this leaves both drones having directly
-received the detection and both calling `build_bundle`/broadcasting a real bid — CBBA
-consensus (`cbba.py`) then resolves the winner by bid + freshness, same as it would with a
-real shared detection. `demo_run.sh` does exactly this. Fixed 2026-09-17 — earlier demo runs
-published to only one drone's topic, so only the *other* drone ever knew the task existed;
-it wasn't competitive bidding at all, just one-sided awareness.
 
 **4. Watch the reaction** — start this *before* step 3 so you don't miss the one-shot
 reaction (topics are volatile/non-latched, no replay for late subscribers):

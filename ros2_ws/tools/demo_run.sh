@@ -77,20 +77,19 @@ DRONE1_PID=$!
 echo "== Letting PSO search run for ${SEARCH_SECONDS}s =="
 sleep "$SEARCH_SECONDS"
 
-echo "== Publishing simulated target detection to BOTH drones (target at 3,4) =="
-# A node never subscribes to its own topic (see coordination_node.py), so a
-# single publish only reaches the *other* drone - that's why earlier runs
-# only ever showed drone 0 reacting. Publishing the same task to both
-# drones' own topics means each one is heard by the other drone, so both
-# independently call add_task/build_bundle and broadcast a real bid -
-# genuine CBBA competition, resolved by consensus (cbba.py), rather than
-# only one drone ever knowing the task exists.
-ros2 topic pub --once /drone_0/coordination/target_detected \
-  coordination_msgs/msg/TargetDetected \
-  "{drone_id: 0, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
-ros2 topic pub --once /drone_1/coordination/target_detected \
-  coordination_msgs/msg/TargetDetected \
-  "{drone_id: 1, target_id: 99, position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
+echo "== Drone 0 detects a target at (3,4) via the real detect_target service =="
+# Calls report_target_detected() inside drone 0's own process, so drone 0
+# self-bids immediately (same path real perception code would use) AND
+# broadcasts TargetDetected on its topic, which drone 1 (and every other
+# drone in the fleet) receives and bids on too. This replaced an earlier
+# workaround that published the same task directly onto BOTH drones' own
+# topics - that faked two independent "detections" instead of exercising
+# one real detection with every drone (including the detector) bidding on
+# it, since a node never receives its own published topic messages and so
+# never self-bid when driven purely by external `ros2 topic pub`.
+ros2 service call /drone_0/coordination/detect_target \
+  coordination_msgs/srv/DetectTarget \
+  "{position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
 
 echo "== Letting the CBBA reaction play out for ${REACT_SECONDS}s =="
 sleep "$REACT_SECONDS"

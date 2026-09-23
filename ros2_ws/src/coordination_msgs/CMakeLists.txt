@@ -11,6 +11,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AgentState.msg"
   "msg/TargetDetected.msg"
   "msg/BundleState.msg"
+  "srv/DetectTarget.srv"
   DEPENDENCIES std_msgs geometry_msgs builtin_interfaces
 )
 

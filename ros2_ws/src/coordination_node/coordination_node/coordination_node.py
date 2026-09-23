@@ -18,6 +18,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import Point
 
 from coordination_msgs.msg import AgentState, TargetDetected, BundleState
+from coordination_msgs.srv import DetectTarget
 
 from coordination_node.pso import ParticleSwarmSearch
 from coordination_node.cbba import CbbaAgent, Task
@@ -97,6 +98,9 @@ class CoordinationNode(Node):
             TargetDetected, f'/drone_{self.drone_id}/coordination/target_detected', 10)
         self.bundle_pub = self.create_publisher(
             BundleState, f'/drone_{self.drone_id}/coordination/bundle_state', 10)
+        self.detect_srv = self.create_service(
+            DetectTarget, f'/drone_{self.drone_id}/coordination/detect_target',
+            self._on_detect_target_service)
 
         for other_id in range(self.num_drones):
             if other_id == self.drone_id:
@@ -201,6 +205,18 @@ class CoordinationNode(Node):
         msg.confidence = confidence
         self.target_pub.publish(msg)
         self._on_target_detected(msg)  # handle our own detection immediately
+
+    def _on_detect_target_service(self, request, response):
+        """Test/tooling entry point for `report_target_detected`, callable
+        from outside the process (e.g. `ros2 service call`). Goes through
+        the same self-bid-then-broadcast path perception code would use —
+        unlike publishing directly onto /coordination/target_detected from
+        outside, which only reaches other drones, never this one."""
+        self.report_target_detected(
+            (request.position.x, request.position.y),
+            request.target_type, request.confidence)
+        response.target_id = self._next_task_id
+        return response
 
     def _sync_state_with_bundle(self):
         """Keep `state` consistent with whether this drone currently holds
