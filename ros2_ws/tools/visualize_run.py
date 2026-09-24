@@ -331,24 +331,39 @@ def main():
 
     # demo_run.sh stops this process with `kill`/`pkill` (SIGTERM), not
     # Ctrl-C - without catching it, save_gif() below would never run and
-    # the whole point of watching the run afterward would be lost. Calling
-    # rclpy.shutdown() here makes rclpy.ok() go false, which is what
-    # actually ends spin()'s loop (cleanly, no exception), same mechanism
-    # ROS2's own examples use for graceful shutdown on a signal.
+    # the whole point of watching the run afterward would be lost.
+    #
+    # This only sets a flag, it does NOT call rclpy.shutdown() from inside
+    # the signal handler. An earlier version did, on the theory that
+    # invalidating the context is what breaks spin()'s loop - it does, but
+    # it also left the context torn down while _save_plot()/save_gif()/
+    # destroy_node() still needed to run afterward (they still called
+    # get_logger().info(), which touches the now-dead rosout publisher).
+    # Confirmed live 2026-09-24: that produced a "publisher's context is
+    # invalid" warning on one run, then reproduced as a genuine deadlock
+    # (process stuck in futex_wait_queue_me, near-zero CPU, never
+    # returning) on a later run - rclpy's shutdown internals aren't meant
+    # to be touched by node/logging calls after shutdown() has already run
+    # elsewhere. Using a plain flag + spin_once, with rclpy.shutdown()
+    # called once at the very end (after destroy_node(), the standard
+    # order), avoids ever doing rclpy work post-shutdown at all.
+    stop_requested = False
+
     def _handle_stop_signal(signum, frame):
-        rclpy.shutdown()
+        nonlocal stop_requested
+        stop_requested = True
 
     signal.signal(signal.SIGTERM, _handle_stop_signal)
     signal.signal(signal.SIGINT, _handle_stop_signal)
 
     try:
-        rclpy.spin(node)
+        while rclpy.ok() and not stop_requested:
+            rclpy.spin_once(node, timeout_sec=0.5)
     finally:
         node._save_plot()
         node.save_gif()
         node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+        rclpy.shutdown()
 
 
 if __name__ == '__main__':
