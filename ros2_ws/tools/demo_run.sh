@@ -6,15 +6,24 @@
 # Run from an already-activated environment (pixi shell in ros_ws, unset
 # VIRTUAL_ENV, source ros2_ws/install/setup.bash), from anywhere:
 #
-#   bash ros2_ws/tools/demo_run.sh [output.png] [search_seconds] [react_seconds]
+#   bash ros2_ws/tools/demo_run.sh [output.png] [search_seconds] [react_seconds] [target_x] [target_y]
 #
-# Defaults: ~/sivana/sar-multidrone-coord/demo_run.png, 15s search, 10s react.
+# Defaults: ~/sivana/sar-multidrone-coord/demo_run.png, 15s search, 10s react,
+# target at (3, 4) - roughly midway between drone 0's (0,0) and drone 1's
+# (5,5) starts, which is why it was easy to assume one of them just always
+# wins. Pass target_x/target_y explicitly to place the target deliberately
+# closer to one drone or the other and confirm the winner actually flips
+# with distance, e.g.:
+#   bash tools/demo_run.sh /tmp/out.png 15 10 1.0 1.0   # near drone 0 - it should win
+#   bash tools/demo_run.sh /tmp/out.png 15 10 4.5 4.5   # near drone 1 - it should win
 
 set -e
 
 OUT="${1:-$HOME/sivana/sar-multidrone-coord/demo_run.png}"
 SEARCH_SECONDS="${2:-15}"
 REACT_SECONDS="${3:-10}"
+TARGET_X="${4:-3.0}"
+TARGET_Y="${5:-4.0}"
 GIF_OUT="${OUT%.png}.gif"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -87,7 +96,7 @@ DRONE1_PID=$!
 echo "== Letting PSO search run for ${SEARCH_SECONDS}s =="
 sleep "$SEARCH_SECONDS"
 
-echo "== Drone 0 detects a target at (3,4) via the real detect_target service =="
+echo "== Drone 0 detects a target at (${TARGET_X},${TARGET_Y}) via the real detect_target service =="
 # Calls report_target_detected() inside drone 0's own process, so drone 0
 # self-bids immediately (same path real perception code would use) AND
 # broadcasts TargetDetected on its topic, which drone 1 (and every other
@@ -99,7 +108,7 @@ echo "== Drone 0 detects a target at (3,4) via the real detect_target service ==
 # never self-bid when driven purely by external `ros2 topic pub`.
 ros2 service call /drone_0/coordination/detect_target \
   coordination_msgs/srv/DetectTarget \
-  "{position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
+  "{position: {x: ${TARGET_X}, y: ${TARGET_Y}, z: 0.0}, target_type: 'person', confidence: 0.9}"
 
 echo "== Letting the CBBA reaction play out for ${REACT_SECONDS}s =="
 sleep "$REACT_SECONDS"
