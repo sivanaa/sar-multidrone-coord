@@ -431,13 +431,27 @@ exists as a way to test the *other* return path specifically, if you want to iso
    `ros2 node info /coordination_node` actually shows a subscription to
    `/fmu/out/vehicle_local_position_v1`, then re-compare
    `agent_state.position` against live telemetry values.
-3. Once real position is confirmed flowing, decide on and build the command
-   loop (PX4 offboard velocity/position setpoints + arm/offboard-mode
-   sequencing) so PSO's output actually drives the vehicle — currently nothing
-   does. **Must carry collision safety with it**: today's hard floor
-   (`separation.py`) teleports a simulated position, which stops making sense
-   once something is actually flying — it needs to become a constraint on the
-   commanded setpoint instead (see "Collision avoidance" above).
+3. **In progress 2026-09-29** — `tools/px4_offboard_smoke_test.py`: a standalone
+   arm/OFFBOARD/climb-and-hold smoke test, deliberately kept separate from
+   `coordination_node.py` per this section's own "isolate before combining" plan.
+   Confirmed exact `px4_msgs` fields live via `ros2 interface show` first
+   (`OffboardControlMode`, `TrajectorySetpoint`, `VehicleCommand`) rather than
+   assuming a version, then built against PX4's documented ROS 2 offboard sequence:
+   stream `OffboardControlMode`+`TrajectorySetpoint` at 10Hz for ~2s, request
+   `VEHICLE_CMD_DO_SET_MODE` (custom main mode 6 = OFFBOARD), request
+   `VEHICLE_CMD_COMPONENT_ARM_DISARM`, hold position at a fixed altitude, and
+   `VEHICLE_CMD_NAV_LAND` on SIGINT or after `--duration`. Only targets a single
+   vehicle (`target_system=1`, unnamespaced `/fmu/in|out/...` topics) — **not yet
+   run/verified live**, and multi-drone topic namespacing (so two drones' uXRCE-DDS
+   Agent bridges don't collide on the same command/telemetry topic names) is a
+   separate, still-open question, same one flagged under "PX4 telemetry" above.
+   Once this smoke test is confirmed working on one drone, the next steps are:
+   wiring real PSO/navigate.py output into it (position setpoints instead of a
+   fixed hold point) and resolving multi-drone namespacing before combining with
+   the two-drone scenario. **Must carry collision safety with it**: today's hard
+   floor (`separation.py`) teleports a simulated position, which stops making
+   sense once something is actually flying — it needs to become a constraint on
+   the commanded setpoint instead (see "Collision avoidance" above).
 4. **Partially done 2026-09-29** — replaced the fitness function's worst structural
    problems (see "PSO fitness function" above: not comparable across drones, fought
    collision avoidance, rewarded moving away from a nearby target) with
