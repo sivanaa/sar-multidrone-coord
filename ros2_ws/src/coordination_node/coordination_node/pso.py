@@ -27,10 +27,15 @@ class PsoState:
 class ParticleSwarmSearch:
     """One drone's PSO particle.
 
-    Fitness is pluggable via `fitness_fn(x, y) -> float` so the search
-    objective (currently a distance-from-origin placeholder, see
-    coordination_node.py) can be swapped for a flood-risk-weighted coverage
-    score without touching the update rule.
+    Fitness is pluggable via `fitness_fn(x, y, neighbor_positions) -> float`
+    so the search objective (currently a nearest-neighbor-spread placeholder,
+    see coordination_node.py's make_coverage_fitness) can be swapped for a
+    flood-risk-weighted coverage score without touching the update rule.
+    `neighbor_positions` is passed through so the fitness function itself
+    can be a shared, cross-drone-comparable quality measure (e.g. "how far
+    from the nearest other drone") rather than something relative to this
+    one drone's own state, which is what made fitness values incomparable
+    across drones before.
     """
 
     def __init__(self, drone_id, initial_position, fitness_fn,
@@ -55,18 +60,20 @@ class ParticleSwarmSearch:
         self.min_separation = min_separation
         self.separation_strength = separation_strength
 
-        # A zero starting velocity is a real deadlock, not just an unbiased
-        # start: fitness at a particle's own starting position is always 0
-        # relative to itself (distance-to-self), so with zero velocity there
-        # is nothing pulling it anywhere — cognitive and social terms are
-        # both zero until it has *already* moved. A small random kick is
-        # standard PSO initialization, and it's what actually bootstraps
-        # exploration here.
+        # A zero starting velocity is a real deadlock: with zero velocity
+        # there is nothing pulling the particle anywhere until it has
+        # already moved once (cognitive/social terms are both zero at the
+        # very first tick). A small random kick is standard PSO
+        # initialization, and it's what actually bootstraps exploration
+        # here.
         kick = max_speed * initial_speed_fraction
         initial_velocity = (random.uniform(-kick, kick), random.uniform(-kick, kick))
 
         self.state = PsoState(position=initial_position, velocity=initial_velocity)
-        self.state.best_fitness = fitness_fn(*initial_position)
+        # No neighbors are known yet at construction time, so there's
+        # nothing to measure spread against - fitness_fn treats an empty
+        # neighbor list as neutral (see make_coverage_fitness), not zero.
+        self.state.best_fitness = fitness_fn(*initial_position, [])
 
     def _separation_velocity(self, x, y, neighbor_positions):
         """Repulsion contribution: for each neighbor closer than
@@ -126,7 +133,7 @@ class ParticleSwarmSearch:
         else:
             new_x, new_y = x + vx * dt, y + vy * dt
 
-        fitness = self.fitness_fn(new_x, new_y)
+        fitness = self.fitness_fn(new_x, new_y, neighbor_positions or [])
         self.state.position = (new_x, new_y)
         self.state.velocity = (vx, vy)
         if fitness > self.state.best_fitness:

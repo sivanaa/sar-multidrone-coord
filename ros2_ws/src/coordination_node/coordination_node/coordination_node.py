@@ -26,28 +26,59 @@ from coordination_node.navigate import step_toward
 from coordination_node.separation import enforce_min_separation
 
 MIN_SEPARATION_M = 1.5  # must match pso.py's default; see separation.py
+ARRIVAL_RADIUS_M = 0.3  # must match navigate.py's step_toward default
 
 STATE_SEARCH = AgentState.STATE_SEARCH
 STATE_TASK_ALLOCATION = AgentState.STATE_TASK_ALLOCATION
 
 
-def make_exploration_fitness(origin_x, origin_y):
-    """Placeholder search-value function: rewards moving away from this
-    drone's own starting point, so the swarm actually spreads out instead of
-    sitting still (a flat/neutral fitness makes every drone's personal-best
-    freeze at its start, which then also freezes the neighbor-pull term —
-    the swarm doesn't move at all, not just "moves without a preference").
+def make_coverage_fitness(area_center, area_radius):
+    """Search-value function: rewards being far from your nearest known
+    neighbor (spreading out to cover more ground), with a penalty for
+    straying outside the shared operating area.
 
-    Comparing fitness across drones here is a rough stand-in — each drone's
-    value is relative to its own origin, not a shared quality measure — but
-    it's enough to produce real outward search motion for now.
+    This replaces an earlier placeholder that rewarded distance from a
+    drone's OWN starting point instead. That version had two real problems,
+    both surfaced via live multi-drone testing (2026-09-23/24): it wasn't
+    comparable across drones (each drone's value was relative to its own
+    origin, so _swarm_best()'s cross-drone comparison below was comparing
+    unrelated quantities), and its social-pull term actively fought pso.py's
+    own separation repulsion instead of cooperating with it — two drones
+    could be pulled toward each other by "exploration" fitness while
+    simultaneously pushed apart by collision safety. It also meant a drone
+    whose start happened to be near a later-detected target got rewarded
+    for moving AWAY from that target, purely as a side effect of not being
+    target-aware at all — confirmed by deliberately placing test targets
+    near each drone's start and watching the "wrong" drone win.
+
+    Nearest-neighbor distance fixes the comparability problem (same
+    reference frame for every drone) and the collision-safety conflict
+    (spreading out is now what BOTH fitness and repulsion want), though it
+    still isn't a real coverage/search-quality score — see the TODO below.
+    `area_center`/`area_radius` exist only to stop this from rewarding
+    drones running infinitely far apart in the unbounded case; they are a
+    soft mission-area bound, not a hard fence.
 
     TODO: replace with the flood-risk-weighted scoring already used by the
-    single-drone GPS routing (edge-ai-gateway), once that scoring is exposed
-    to this node.
+    single-drone GPS routing (edge-ai-gateway), once that scoring is
+    exposed to this node. Nearest-neighbor spread is a reasonable
+    placeholder for "don't duplicate another drone's search effort," but it
+    still has no idea where a target is actually likely to be.
     """
-    def fitness(x, y):
-        return math.hypot(x - origin_x, y - origin_y)
+    center_x, center_y = area_center
+
+    def fitness(x, y, neighbor_positions):
+        if neighbor_positions:
+            spread = min(math.hypot(x - nx, y - ny)
+                         for nx, ny in neighbor_positions)
+        else:
+            # No neighbor data yet (e.g. the very first tick) - treat as
+            # neutral rather than 0, so an uninformed particle isn't
+            # penalized relative to one that's already heard from a
+            # neighbor.
+            spread = area_radius
+        overreach = max(0.0, math.hypot(x - center_x, y - center_y) - area_radius)
+        return spread - 2.0 * overreach
     return fitness
 
 
@@ -59,6 +90,16 @@ class CoordinationNode(Node):
         self.declare_parameter('num_drones', 2)
         self.declare_parameter('initial_x', 0.0)
         self.declare_parameter('initial_y', 0.0)
+        # Soft bound for make_coverage_fitness's search-area penalty (see
+        # its docstring) - a mission-level setting, not per-drone, so every
+        # drone in a fleet should normally be launched with the same
+        # values. Defaults are deliberately generic/small rather than tuned
+        # to any one demo's coordinates (this node stays usable for any N
+        # drones at any scale); override per deployment the same way
+        # initial_x/initial_y already are.
+        self.declare_parameter('area_center_x', 0.0)
+        self.declare_parameter('area_center_y', 0.0)
+        self.declare_parameter('area_radius', 10.0)
         self.declare_parameter('use_px4_position', False)
         # PX4 v1.18.0-beta1 (the version on the project's drone server, see
         # ARCHITECTURE.md) publishes this under a versioned topic name; the
@@ -71,11 +112,16 @@ class CoordinationNode(Node):
         init_x = self.get_parameter('initial_x').value
         init_y = self.get_parameter('initial_y').value
 
+        area_center = (
+            self.get_parameter('area_center_x').value,
+            self.get_parameter('area_center_y').value)
+        area_radius = self.get_parameter('area_radius').value
+
         self.state = STATE_SEARCH
         self.pso = ParticleSwarmSearch(
             drone_id=self.drone_id,
             initial_position=(init_x, init_y),
-            fitness_fn=make_exploration_fitness(init_x, init_y),
+            fitness_fn=make_coverage_fitness(area_center, area_radius),
         )
         self.cbba = CbbaAgent(drone_id=self.drone_id)
 
@@ -225,13 +271,16 @@ class CoordinationNode(Node):
         every task via consensus stays stuck in TASK_ALLOCATION forever with
         PSO paused (`_tick` only steps PSO while `state == SEARCH`).
 
-        TODO: there's no task-completion lifecycle yet (nothing marks a
-        *won* task as finished/investigated), so a drone that's actually
-        winning tasks won't return to SEARCH via this path either — that
-        needs real investigation/telemetry logic, not just consensus
-        bookkeeping. Found via live two-drone testing on 2026-09-15: a
-        drone's position froze the instant it won its first task and never
-        moved again, even 800+ seconds later.
+        Originally this only handled the "lost via consensus" return path —
+        a drone that actually WON a task stayed in TASK_ALLOCATION forever
+        even after arriving, since nothing ever emptied its bundle (found
+        live 2026-09-15: a drone's position froze the instant it won its
+        first task and never moved again). Fixed 2026-09-29:
+        _navigate_to_current_task() now calls cbba.mark_task_done() on
+        arrival, which is what actually empties the bundle in that case —
+        this method itself didn't need to change, it was always correct
+        given an empty-or-not bundle, the bundle just never became empty on
+        the "won" path before.
         """
         self.state = STATE_TASK_ALLOCATION if self.cbba.bundle else STATE_SEARCH
 
@@ -316,23 +365,36 @@ class CoordinationNode(Node):
             MIN_SEPARATION_M)
 
     def _navigate_to_current_task(self, dt):
-        """Fly toward the first task in this drone's CBBA bundle/path.
+        """Fly toward the first task in this drone's CBBA bundle/path, and
+        mark it done once actually arrived — closing the task-completion-
+        lifecycle gap (see ARCHITECTURE.md): before this, a won task never
+        left the bundle, so _sync_state_with_bundle() never had a reason to
+        return to SEARCH, and a drone that WON a task (as opposed to losing
+        one via consensus) was stuck in TASK_ALLOCATION forever even after
+        there was nothing left to do.
 
         TODO: only handles the first task — doesn't chain through multiple
-        committed tasks in bundle order yet, and doesn't mark a task done
-        on arrival (see the task-completion-lifecycle gap in
-        ARCHITECTURE.md) — it just holds position once close enough.
+        committed tasks in bundle order yet.
         """
         if not self.cbba.path:
             return
-        task = self.cbba.tasks.get(self.cbba.path[0])
+        task_id = self.cbba.path[0]
+        task = self.cbba.tasks.get(task_id)
         if task is None:
             return
         self.pso.state.position = step_toward(
             self.pso.state.position, task.position, dt,
-            max_speed=self.pso.max_speed, real_position=self._real_position,
+            max_speed=self.pso.max_speed, arrival_radius=ARRIVAL_RADIUS_M,
+            real_position=self._real_position,
             neighbor_positions=list(self.neighbor_position.values()),
             min_separation=MIN_SEPARATION_M)
+
+        dx = task.position[0] - self.pso.state.position[0]
+        dy = task.position[1] - self.pso.state.position[1]
+        if math.hypot(dx, dy) <= ARRIVAL_RADIUS_M:
+            self.cbba.mark_task_done(task_id)
+            self._sync_state_with_bundle()
+            self._publish_bundle_state()
 
 
 def main(args=None):

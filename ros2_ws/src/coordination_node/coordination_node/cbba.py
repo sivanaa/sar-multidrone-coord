@@ -38,6 +38,7 @@ class CbbaAgent:
         self.tasks = {}          # task_id -> Task
         self.bundle = []         # committed task_ids, insertion order
         self.path = []           # bundle re-ordered for execution (== bundle for now)
+        self.completed_task_ids = set()  # tasks actually finished, never re-picked
 
         self.winning_bids = {}   # task_id -> float
         self.winning_agent = {}  # task_id -> drone_id
@@ -64,6 +65,22 @@ class CbbaAgent:
         distance = math.hypot(dx, dy)
         return task.confidence / (1.0 + distance)
 
+    def mark_task_done(self, task_id):
+        """Release a task this drone has actually finished (arrived at),
+        as opposed to being outbid on (see receive_bundle_state's release
+        rule for that case). Without this, a won task never leaves the
+        bundle, coordination_node.py's _sync_state_with_bundle() never sees
+        a reason to go back to SEARCH, and the drone is stuck "assigned"
+        forever even after there's nothing left to do — confirmed live
+        2026-09-15, a drone's position froze the instant it won its first
+        task and never moved again. completed_task_ids makes the exclusion
+        permanent so build_bundle() can't immediately re-pick the same task
+        back up the very next tick (it would otherwise: this drone's own
+        recorded winning bid for it is still the high one that just won)."""
+        self.completed_task_ids.add(task_id)
+        self.bundle = [t for t in self.bundle if t != task_id]
+        self.path = [t for t in self.path if t != task_id]
+
     def build_bundle(self, current_position):
         """Greedy bundle construction: repeatedly add the task with the
         highest marginal bid this drone can currently win, until the bundle
@@ -72,7 +89,7 @@ class CbbaAgent:
             best_task_id = None
             best_bid = 0.0
             for task_id, task in self.tasks.items():
-                if task_id in self.bundle:
+                if task_id in self.bundle or task_id in self.completed_task_ids:
                     continue
                 bid = self.bid_for(task, current_position)
                 if bid > self.winning_bids.get(task_id, 0.0) and bid > best_bid:

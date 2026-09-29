@@ -81,15 +81,23 @@ VIZ_PID=$!
 
 sleep 3
 
+# area_center/area_radius bound make_coverage_fitness's search-area penalty
+# (see coordination_node.py) - centered between the two drones' starts with
+# a generous radius, so it stays a soft "don't wander off forever" backstop
+# rather than something the demo's normal excursions keep tripping.
+AREA_ARGS="-p area_center_x:=2.5 -p area_center_y:=2.5 -p area_radius:=6.0"
+
 echo "== Launching drone 0 (start: 0,0) =="
 ros2 run coordination_node coordination_node --ros-args \
   -p drone_id:=0 -p num_drones:=2 -p initial_x:=0.0 -p initial_y:=0.0 \
+  $AREA_ARGS \
   > /tmp/demo_drone0.log 2>&1 &
 DRONE0_PID=$!
 
 echo "== Launching drone 1 (start: 5,5) =="
 ros2 run coordination_node coordination_node --ros-args \
   -p drone_id:=1 -p num_drones:=2 -p initial_x:=5.0 -p initial_y:=5.0 \
+  $AREA_ARGS \
   > /tmp/demo_drone1.log 2>&1 &
 DRONE1_PID=$!
 

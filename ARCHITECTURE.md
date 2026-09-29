@@ -99,15 +99,27 @@ own "next report" scope:**
 - **Bid function** (`cbba.py: bid_for`) — currently just confidence /
   (1 + distance). Report flags this as needing real tuning once there's
   telemetry to test against.
-- **PSO fitness function** (`coordination_node.py: make_exploration_fitness`)
-  — currently rewards distance from each drone's own starting point (a crude
-  "spread out" incentive) rather than any real search value. Comparing this
-  across drones is a rough stand-in, not a shared quality measure. Should
-  become the flood-risk-weighted scoring already used by the single-drone
-  GPS routing (`edge-ai-gateway`), once that scoring is exposed. (Note: a
-  flat/neutral placeholder was tried first and rejected during review — it
-  silently froze every drone's personal-best at its starting position, which
-  also froze the neighbor-pull term, so the swarm never moved at all.)
+- **PSO fitness function** (`coordination_node.py: make_coverage_fitness`,
+  replaced 2026-09-29) — rewards distance from your nearest known neighbor
+  (spread out, don't duplicate search effort), softly bounded by a shared
+  `area_center`/`area_radius`, rather than any real search value. This is
+  still a placeholder, not the flood-risk-weighted scoring from the
+  single-drone GPS routing (`edge-ai-gateway`) that should eventually
+  replace it — but it fixed two concrete, found-live problems the previous
+  version had. (History: a flat/neutral placeholder was tried first and
+  rejected during review — it silently froze every drone's personal-best at
+  its starting position, which also froze the neighbor-pull term, so the
+  swarm never moved at all. The next version, distance-from-own-origin,
+  fixed that but wasn't comparable across drones — each drone's value was
+  relative to its own start — and its social-pull term actively fought
+  `pso.py`'s own separation repulsion instead of cooperating with it. Found
+  2026-09-23/24 via deliberately placing test targets near each drone's own
+  start and watching the "wrong" drone win: distance-from-own-origin
+  rewards a drone for moving AWAY from a target that happens to be near
+  home, which is backwards. Nearest-neighbor spread fixes the comparability
+  problem (same reference frame for every drone) and now cooperates with
+  collision safety instead of fighting it, though it still has no notion of
+  where a target is actually likely to be.)
 - **CBBA consensus rule** (`cbba.py: receive_bundle_state`) — implements the
   common cases from the paper's action table, not the complete table.
 - **Task metadata propagation** — `BundleState` doesn't carry task details
@@ -125,9 +137,18 @@ own "next report" scope:**
   with a local numeric dry-run (converges to the target in 4 ticks over a
   5m gap, no overshoot) before shipping.
   Still open: only handles the *first* task in the bundle — doesn't chain
-  through multiple committed tasks in order, and doesn't mark a task done
-  on arrival (ties into the task-completion-lifecycle gap below — arriving
-  should eventually trigger that, once it exists).
+  through multiple committed tasks in order.
+  **Task-completion lifecycle — fixed 2026-09-29.** Arriving within
+  `arrival_radius` now calls `cbba.mark_task_done()`, which removes the
+  task from the bundle/path and adds it to a permanent
+  `completed_task_ids` set (so `build_bundle()` can't immediately re-pick
+  the same task back up — this drone's own recorded winning bid for it is
+  still the high one that just won). An empty bundle is exactly what
+  `_sync_state_with_bundle()` already used to decide SEARCH vs
+  TASK_ALLOCATION, so no change was needed there — the bundle just never
+  became empty on the "won" path before. This is distinct from being
+  outbid (`receive_bundle_state`'s release rule): that's "someone else is
+  better positioned," this is "the job here is actually finished."
 - **Collision avoidance — added 2026-09-17.** Raised directly by a safety
   question: does the drones' observed path-convergence behavior (see the
   demo plots) mean they could actually collide? Answer at the time was yes —
@@ -369,11 +390,13 @@ Check: does `known_task_ids` include the new task, is `winning_bids` a sensible 
 number, and does `bundle` include it if this drone should win? Also spot-check
 `agent_state`'s `state` field flips to `1` (`TASK_ALLOCATION`).
 
-**Known gap in this procedure**: because there's no task-completion lifecycle yet (see
-below), a drone that wins a task never returns to `SEARCH` on its own — so testing the
-`TASK_ALLOCATION → SEARCH` return path currently requires engineering an "outbid" scenario
-(e.g. manually publishing a competing `BundleState` with a higher bid and a fresher
-timestamp for the same task) rather than it happening naturally.
+**Fixed 2026-09-29** — a drone that wins a task now returns to `SEARCH` on its own once it
+actually arrives (see the task-completion-lifecycle note under "Navigation-to-target"
+above), so the `TASK_ALLOCATION → SEARCH` return path is exercised naturally just by
+letting a run continue past arrival — watch `agent_state`'s `state` field flip back to `0`
+a few ticks after `bundle_state`'s `bundle` empties out. The "outbid" scenario (manually
+publishing a competing `BundleState` with a higher bid and a fresher timestamp) still
+exists as a way to test the *other* return path specifically, if you want to isolate it.
 
 ## Next steps
 
@@ -405,4 +428,10 @@ timestamp for the same task) rather than it happening naturally.
    (`separation.py`) teleports a simulated position, which stops making sense
    once something is actually flying — it needs to become a constraint on the
    commanded setpoint instead (see "Collision avoidance" above).
-4. Tune the bid function and fitness function against actual two-drone runs.
+4. **Partially done 2026-09-29** — replaced the fitness function's worst structural
+   problems (see "PSO fitness function" above: not comparable across drones, fought
+   collision avoidance, rewarded moving away from a nearby target) with
+   `make_coverage_fitness` (nearest-neighbor spread, softly bounded by area
+   center/radius). Still not a real search-quality score, and the bid function
+   (`cbba.py: bid_for`) hasn't been touched — both remain open for tuning against
+   actual multi-drone runs, per the report's own deferred scope.
