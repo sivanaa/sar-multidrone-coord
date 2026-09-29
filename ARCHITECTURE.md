@@ -119,7 +119,17 @@ own "next report" scope:**
   home, which is backwards. Nearest-neighbor spread fixes the comparability
   problem (same reference frame for every drone) and now cooperates with
   collision safety instead of fighting it, though it still has no notion of
-  where a target is actually likely to be.)
+  where a target is actually likely to be. **One more round the same day**:
+  the first version of nearest-neighbor spread fell back to a flat constant
+  when a drone had no neighbor data yet (e.g. before ROS2 discovery
+  completes) — which is exactly the already-rejected flat-fitness bug from
+  above, just scoped to "before the first neighbor message." Confirmed live
+  2026-09-29: drone 0 sat frozen solid at its exact starting position for
+  the ~27s an unusually slow discovery handshake took on that run, only
+  unfreezing the instant real neighbor data arrived. Fixed by falling back
+  to distance-from-area-center instead of a constant during that window —
+  still varies smoothly with position (can't flatline), still the same
+  reference frame for every drone (doesn't reintroduce the origin bug).)
 - **CBBA consensus rule** (`cbba.py: receive_bundle_state`) — implements the
   common cases from the paper's action table, not the complete table.
 - **Task metadata propagation** — `BundleState` doesn't carry task details

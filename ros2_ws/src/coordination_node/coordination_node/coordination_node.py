@@ -68,16 +68,33 @@ def make_coverage_fitness(area_center, area_radius):
     center_x, center_y = area_center
 
     def fitness(x, y, neighbor_positions):
+        distance_from_center = math.hypot(x - center_x, y - center_y)
         if neighbor_positions:
             spread = min(math.hypot(x - nx, y - ny)
                          for nx, ny in neighbor_positions)
         else:
-            # No neighbor data yet (e.g. the very first tick) - treat as
-            # neutral rather than 0, so an uninformed particle isn't
-            # penalized relative to one that's already heard from a
-            # neighbor.
-            spread = area_radius
-        overreach = max(0.0, math.hypot(x - center_x, y - center_y) - area_radius)
+            # No neighbor data yet (e.g. the first tick, or a slow ROS2
+            # discovery handshake) - fall back to distance-from-area-center
+            # rather than a flat constant. A constant here reproduces the
+            # exact flat-fitness bug this file's own history already
+            # rejected once (see above): every position looks equally
+            # good, so best_fitness never improves past the very first
+            # tick, the cognitive/social pull terms both collapse to zero
+            # once near the start, and the particle freezes solid.
+            # Confirmed live 2026-09-29: drone 0 sat frozen at its exact
+            # starting position (distance-to-target flat at exactly 5.0,
+            # its literal straight-line distance from (0,0) to (3,4)) for
+            # the ~27s it took to receive its first AgentState from drone
+            # 1 on this run - unusually slow discovery, but the constant
+            # fallback turned a brief startup blip into a full freeze.
+            # Distance-from-center still varies smoothly with position, so
+            # it can't flatline the same way, and unlike distance-from-OWN-
+            # origin it's the same reference frame for every drone, so it
+            # doesn't reintroduce the "punished for starting near the
+            # target" bug either - it only ever applies during this brief
+            # bootstrap window before real neighbor data exists.
+            spread = distance_from_center
+        overreach = max(0.0, distance_from_center - area_radius)
         return spread - 2.0 * overreach
     return fitness
 
