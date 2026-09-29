@@ -431,8 +431,8 @@ exists as a way to test the *other* return path specifically, if you want to iso
    `ros2 node info /coordination_node` actually shows a subscription to
    `/fmu/out/vehicle_local_position_v1`, then re-compare
    `agent_state.position` against live telemetry values.
-3. **In progress 2026-09-29** — `tools/px4_offboard_smoke_test.py`: a standalone
-   arm/OFFBOARD/climb-and-hold smoke test, deliberately kept separate from
+3. **First real flight confirmed live 2026-09-29** — `tools/px4_offboard_smoke_test.py`:
+   a standalone arm/OFFBOARD/climb-and-hold smoke test, deliberately kept separate from
    `coordination_node.py` per this section's own "isolate before combining" plan.
    Confirmed exact `px4_msgs` fields live via `ros2 interface show` first
    (`OffboardControlMode`, `TrajectorySetpoint`, `VehicleCommand`) rather than
@@ -441,14 +441,36 @@ exists as a way to test the *other* return path specifically, if you want to iso
    `VEHICLE_CMD_DO_SET_MODE` (custom main mode 6 = OFFBOARD), request
    `VEHICLE_CMD_COMPONENT_ARM_DISARM`, hold position at a fixed altitude, and
    `VEHICLE_CMD_NAV_LAND` on SIGINT or after `--duration`. Only targets a single
-   vehicle (`target_system=1`, unnamespaced `/fmu/in|out/...` topics) — **not yet
-   run/verified live**, and multi-drone topic namespacing (so two drones' uXRCE-DDS
-   Agent bridges don't collide on the same command/telemetry topic names) is a
-   separate, still-open question, same one flagged under "PX4 telemetry" above.
-   Once this smoke test is confirmed working on one drone, the next steps are:
-   wiring real PSO/navigate.py output into it (position setpoints instead of a
-   fixed hold point) and resolving multi-drone namespacing before combining with
-   the two-drone scenario. **Must carry collision safety with it**: today's hard
+   vehicle (`target_system=1`, unnamespaced `/fmu/in|out/...` topics) — multi-drone
+   topic namespacing (so two drones' uXRCE-DDS Agent bridges don't collide on the
+   same command/telemetry topic names) is a separate, still-open question, same one
+   flagged under "PX4 telemetry" above.
+
+   **Real blocker hit and fixed on first run**: PX4 refused to arm at all —
+   `health_and_arming_checks: Preflight Fail: No connection to the GCS` — and even
+   `commander arm -f` (force-arm from the PX4 shell) only stayed armed for an
+   instant before `Disarmed by auto preflight disarming`, because this specific
+   check (`FailsafeFlags.gcs_connection_lost`, confirmed via
+   `ros2 interface show px4_msgs/msg/FailsafeFlags`) is continuously monitored, not
+   a one-time gate. Root cause: `NAV_DLL_ACT` (datalink-loss failsafe action) was
+   `2` (an active failsafe, not `0`/disabled) — sensible for a real vehicle
+   expecting a GCS link, wrong for this pure companion-computer/offboard setup with
+   no GCS at all. **Fixed via `param set NAV_DLL_ACT 0`** in the PX4 shell before
+   running the script. This is a per-session runtime change, not persisted to
+   disk (no `param save` was run) — **treat it as a required manual setup step
+   every time PX4 SITL is freshly launched** for offboard testing, not a one-time
+   fix; a restarted PX4 instance reverts to `NAV_DLL_ACT=2` and will refuse to arm
+   again until this is re-applied.
+
+   **Confirmed working end-to-end**: script requested OFFBOARD mode, then ARM —
+   PX4 logged `Armed by external command` (the *normal*, non-forced arm request
+   succeeded), `Takeoff detected`, then ~20s later (matching `--duration 20`)
+   `Landing detected` → `Disarmed by landing`. First real flight, even in
+   simulation, in this entire project.
+
+   Next steps: wiring real PSO/navigate.py output into it (position setpoints
+   instead of a fixed hold point) and resolving multi-drone namespacing before
+   combining with the two-drone scenario. **Must carry collision safety with it**: today's hard
    floor (`separation.py`) teleports a simulated position, which stops making
    sense once something is actually flying — it needs to become a constraint on
    the commanded setpoint instead (see "Collision avoidance" above).
