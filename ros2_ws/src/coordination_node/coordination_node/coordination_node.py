@@ -399,12 +399,13 @@ class CoordinationNode(Node):
         task = self.cbba.tasks.get(task_id)
         if task is None:
             return
-        self.pso.state.position = step_toward(
+        tracked_x, tracked_y, _commanded_x, _commanded_y = step_toward(
             self.pso.state.position, task.position, dt,
             max_speed=self.pso.max_speed, arrival_radius=ARRIVAL_RADIUS_M,
             real_position=self._real_position,
             neighbor_positions=list(self.neighbor_position.values()),
             min_separation=MIN_SEPARATION_M)
+        self.pso.state.position = (tracked_x, tracked_y)
 
         dx = task.position[0] - self.pso.state.position[0]
         dy = task.position[1] - self.pso.state.position[1]

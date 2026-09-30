@@ -487,10 +487,40 @@ exists as a way to test the *other* return path specifically, if you want to iso
    drone), so this specifically exercises the "no neighbor data" fallback path
    (distance-from-area-center) fixed 2026-09-29, not the neighbor-spread path —
    that needs a second real drone, which needs the topic-namespacing question
-   below resolved first. **Not yet run/verified live.**
+   below resolved first.
+
+   **Confirmed live 2026-09-30**: same real gotcha as the day before but a
+   different sensor — PX4 refused to arm with `Preflight Fail: barometer 0
+   missing` (`listener sensor_baro` -> "never published", while
+   `sensor_accel`/`sensor_gps` showed live data). Fixed with
+   `sensor_baro_sim start` in the PX4 shell — a different simulated-sensor
+   module than yesterday's GCS-link fix, same "check for it, don't assume the
+   launch recipe is broken" category. After that: full arm -> takeoff -> hold
+   -> land cycle confirmed, same as the fixed-hold-point test. Watched
+   `/fmu/out/vehicle_local_position_v1` live during a run to confirm PSO was
+   actually driving real movement (not frozen) — confirmed, though only within
+   a small (~1cm) range over ~25s of flight, consistent with the already-known
+   PSO-convergence limitation now visible against a real vehicle instead of
+   simulated position.
+
+   **In progress 2026-09-30** — `tools/px4_offboard_mission_test.py`: adds the
+   full SEARCH -> detect -> TASK_ALLOCATION (`navigate.py`) -> complete
+   (`cbba.py`'s `mark_task_done`) -> back to SEARCH cycle on top of the PSO
+   test above, still one drone (no CBBA consensus contest — `build_bundle()`
+   just wins uncontested, same code path as the two-drone case). The
+   "detection" is scripted (fires `--detect-after` seconds after arming at a
+   fixed `--target-x`/`--target-y`), same deliberate simplification
+   `demo_run.sh` already uses. This needed the same commanded-vs-tracked split
+   applied to `navigate.py`'s `step_toward()` that `pso.py`'s `step()` got the
+   day before — it had the identical gap (echoed `real_position` straight back
+   with no velocity applied when given real telemetry, nothing to actually
+   command a real vehicle with). Now returns
+   `(tracked_x, tracked_y, commanded_x, commanded_y)`; `coordination_node.py`'s
+   one call site updated to unpack `tracked_x/y` only, so its own
+   already-verified simulated-position behavior is unchanged. **Not yet run/
+   verified live.**
    Remaining before combining with the two-drone scenario: resolve multi-drone
-   PX4 topic namespacing, and wire in real `navigate.py`/CBBA behavior (this
-   test is PSO-only, no target detection or task allocation involved yet).
+   PX4 topic namespacing.
    **Must carry collision safety with it**: today's hard
    floor (`separation.py`) teleports a simulated position, which stops making
    sense once something is actually flying — it needs to become a constraint on

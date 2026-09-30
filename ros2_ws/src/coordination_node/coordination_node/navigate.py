@@ -17,12 +17,21 @@ import math
 def step_toward(position, target, dt, max_speed, arrival_radius=0.3,
                  real_position=None, neighbor_positions=None,
                  min_separation=1.5, separation_strength=2.5):
-    """Advance one tick toward `target`. Returns the new (x, y).
+    """Advance one tick toward `target`. Returns
+    `(tracked_x, tracked_y, commanded_x, commanded_y)`.
 
-    `real_position`, when given, is real telemetry and is reported as the
-    actual position instead of the internally-integrated one — mirrors
-    pso.py's `step` so both movement modes behave consistently once real
-    PX4 position is wired in.
+    `real_position`, when given, is real telemetry: `tracked_x/y` then
+    reports that (truth, for the caller's own position/arrival bookkeeping —
+    mirrors pso.py's `step`), while `commanded_x/y` is still the
+    velocity-extrapolated point this function actually wants the vehicle to
+    move to next. Without commanded and tracked being separate, there would
+    be nothing to send a real flight controller — before this split (added
+    2026-09-30, same gap fixed in pso.py's `step` the day before), giving
+    `real_position` made this function just echo it straight back with no
+    velocity applied at all. When `real_position` is None, the two pairs are
+    identical (there's no real vehicle to distinguish "where it is" from
+    "where it should go" from a fictitious `x += vx * dt` guess) — so this
+    doesn't change any already-verified simulated-position behavior.
 
     `neighbor_positions`, when given, blends in a repulsion away from any
     drone closer than `min_separation`, same shape as pso.py's soft
@@ -39,7 +48,9 @@ def step_toward(position, target, dt, max_speed, arrival_radius=0.3,
     distance = math.hypot(dx, dy)
 
     if distance <= arrival_radius:
-        return real_position if real_position is not None else (x, y)
+        # Already there - hold, don't keep extrapolating past the target.
+        tracked = real_position if real_position is not None else (x, y)
+        return tracked[0], tracked[1], tracked[0], tracked[1]
 
     # Cap speed so a close-but-not-arrived target is approached smoothly in
     # the final tick rather than overshot and then oscillated around.
@@ -72,9 +83,9 @@ def step_toward(position, target, dt, max_speed, arrival_radius=0.3,
         vx *= scale
         vy *= scale
 
-    new_x = x + vx * dt
-    new_y = y + vy * dt
+    commanded_x = x + vx * dt
+    commanded_y = y + vy * dt
+    tracked_x, tracked_y = real_position if real_position is not None else (
+        commanded_x, commanded_y)
 
-    if real_position is not None:
-        return real_position
-    return (new_x, new_y)
+    return tracked_x, tracked_y, commanded_x, commanded_y
