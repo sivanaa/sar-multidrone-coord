@@ -114,11 +114,19 @@ class Px4OffboardSmokeTest(Node):
         msg.direct_actuator = False
         self.offboard_mode_pub.publish(msg)
 
+    def _next_xy(self):
+        """Horizontal setpoint for this tick. Fixed at the origin here;
+        overridden by px4_offboard_pso_test.py to drive this from a live
+        PSO particle instead, without duplicating the arm/OFFBOARD/land
+        sequence this class already handles."""
+        return 0.0, 0.0
+
     def _publish_hold_setpoint(self):
+        x, y = self._next_xy()
         msg = TrajectorySetpoint()
         msg.timestamp = self._now_us()
         # NED frame: down is positive, so climbing is a NEGATIVE z.
-        msg.position = [0.0, 0.0, -self.hold_altitude]
+        msg.position = [x, y, -self.hold_altitude]
         msg.yaw = 0.0
         self.trajectory_pub.publish(msg)
 

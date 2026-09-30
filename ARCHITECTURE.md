@@ -468,9 +468,30 @@ exists as a way to test the *other* return path specifically, if you want to iso
    `Landing detected` → `Disarmed by landing`. First real flight, even in
    simulation, in this entire project.
 
-   Next steps: wiring real PSO/navigate.py output into it (position setpoints
-   instead of a fixed hold point) and resolving multi-drone namespacing before
-   combining with the two-drone scenario. **Must carry collision safety with it**: today's hard
+   **In progress 2026-09-30** — `tools/px4_offboard_pso_test.py`: subclasses
+   `Px4OffboardSmokeTest` (refactored to expose an overridable `_next_xy()` hook
+   instead of duplicating the arm/OFFBOARD/land sequence) and drives the
+   horizontal setpoint from a real `ParticleSwarmSearch` particle each tick,
+   using the vehicle's actual telemetry as `pso.step()`'s `real_position`. This
+   needed a real gap closed in `pso.py` first: `step()` previously had no way to
+   report "the position PSO wants to command next" separately from
+   "`self.state.position`, which now tracks ground truth" — when `real_position`
+   is given, both used to collapse to the same value (just the truth, echoed
+   back), so there was nothing to actually send to a real vehicle. Fixed by
+   having `step()` always compute the velocity-extrapolated
+   `(commanded_x, commanded_y)` and return that, while `self.state.position`
+   keeps tracking truth for fitness/personal-best bookkeeping — identical
+   behavior to before when `real_position` is None (the two values are the same
+   in that case), so this doesn't change any already-verified simulated
+   behavior. Uses `make_coverage_fitness` with an empty neighbor list (one
+   drone), so this specifically exercises the "no neighbor data" fallback path
+   (distance-from-area-center) fixed 2026-09-29, not the neighbor-spread path —
+   that needs a second real drone, which needs the topic-namespacing question
+   below resolved first. **Not yet run/verified live.**
+   Remaining before combining with the two-drone scenario: resolve multi-drone
+   PX4 topic namespacing, and wire in real `navigate.py`/CBBA behavior (this
+   test is PSO-only, no target detection or task allocation involved yet).
+   **Must carry collision safety with it**: today's hard
    floor (`separation.py`) teleports a simulated position, which stops making
    sense once something is actually flying — it needs to become a constraint on
    the commanded setpoint instead (see "Collision avoidance" above).

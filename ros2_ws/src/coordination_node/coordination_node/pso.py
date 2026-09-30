@@ -101,10 +101,17 @@ class ParticleSwarmSearch:
 
         `real_position`, when given, is real telemetry (e.g. PX4 local
         position) and is used as this tick's actual location instead of the
-        internally-integrated one — nothing currently commands the vehicle
-        to follow PSO's velocity, so with `real_position` set, velocity
-        keeps evolving (useful once a command loop exists) but position
-        tracks truth rather than a fictitious `x += vx * dt` guess.
+        internally-integrated one — `self.state.position`/`best_position`
+        track truth rather than a fictitious `x += vx * dt` guess, since
+        that's what fitness should be evaluated against. Velocity keeps
+        evolving the same way either way, and its one-step extrapolation
+        (`x + vx * dt`) is what this method returns — the vehicle isn't
+        already there yet, that's where PSO wants it to go next. When
+        `real_position` is None, this is identical to `self.state.position`
+        (there's no real vehicle to distinguish "where it is" from "where
+        it should go"); it only diverges once real telemetry is involved,
+        which is the whole point — a command loop needs the commanded
+        setpoint, not a readback of the position it already sent last tick.
         """
         x, y = real_position if real_position is not None else self.state.position
         vx, vy = self.state.velocity
@@ -128,10 +135,9 @@ class ParticleSwarmSearch:
             vx *= scale
             vy *= scale
 
-        if real_position is not None:
-            new_x, new_y = real_position
-        else:
-            new_x, new_y = x + vx * dt, y + vy * dt
+        commanded_x, commanded_y = x + vx * dt, y + vy * dt
+        new_x, new_y = real_position if real_position is not None else (
+            commanded_x, commanded_y)
 
         fitness = self.fitness_fn(new_x, new_y, neighbor_positions or [])
         self.state.position = (new_x, new_y)
@@ -140,4 +146,4 @@ class ParticleSwarmSearch:
             self.state.best_position = (new_x, new_y)
             self.state.best_fitness = fitness
 
-        return self.state.position
+        return commanded_x, commanded_y
