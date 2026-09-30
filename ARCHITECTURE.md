@@ -503,7 +503,7 @@ exists as a way to test the *other* return path specifically, if you want to iso
    PSO-convergence limitation now visible against a real vehicle instead of
    simulated position.
 
-   **In progress 2026-09-30** — `tools/px4_offboard_mission_test.py`: adds the
+   **Confirmed live 2026-09-30** — `tools/px4_offboard_mission_test.py`: adds the
    full SEARCH -> detect -> TASK_ALLOCATION (`navigate.py`) -> complete
    (`cbba.py`'s `mark_task_done`) -> back to SEARCH cycle on top of the PSO
    test above, still one drone (no CBBA consensus contest — `build_bundle()`
@@ -517,8 +517,24 @@ exists as a way to test the *other* return path specifically, if you want to iso
    command a real vehicle with). Now returns
    `(tracked_x, tracked_y, commanded_x, commanded_y)`; `coordination_node.py`'s
    one call site updated to unpack `tracked_x/y` only, so its own
-   already-verified simulated-position behavior is unchanged. **Not yet run/
-   verified live.**
+   already-verified simulated-position behavior is unchanged.
+
+   **Gotcha**: after `git pull`, the script crashed with `ValueError: not
+   enough values to unpack (expected 4, got 2)` — `navigate.py` is part of the
+   compiled `coordination_node` ROS2 package, so a plain `git pull` wasn't
+   enough; the *installed* copy under `install/` was still the old pre-fix
+   version until `colcon build` reran. `tools/*.py` scripts themselves don't
+   need this (they're plain scripts, not part of the package), but anything
+   they `import` from `coordination_node`'s own package does.
+
+   **Full cycle confirmed working end-to-end on a real (simulated) vehicle**:
+   armed, took off, searched, `Detection fired: investigating (3.0, 3.0)` ~15s
+   after arming (matching `--detect-after`), flew there, `Task 1 complete -
+   resuming search` ~15s later (genuinely arrived, not just timed out), landed
+   cleanly at `--duration`. This is the entire single-drone coordination
+   pipeline — not just PSO output reaching a vehicle, but the real
+   search/detect/navigate/complete/resume-search cycle — proven on real flight,
+   not only the ROS2-only ground-truth demos.
    Remaining before combining with the two-drone scenario: resolve multi-drone
    PX4 topic namespacing.
    **Must carry collision safety with it**: today's hard
