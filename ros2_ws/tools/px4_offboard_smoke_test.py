@@ -48,7 +48,7 @@ from rclpy.qos import (
 
 from px4_msgs.msg import (
     OffboardControlMode, TrajectorySetpoint, VehicleCommand,
-    VehicleLocalPosition)
+    VehicleCommandAck, VehicleLocalPosition)
 
 PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6
 SETPOINT_HZ = 10.0
@@ -98,6 +98,15 @@ class Px4OffboardSmokeTest(Node):
         self.create_subscription(
             VehicleLocalPosition, f'{prefix}/fmu/out/vehicle_local_position_v1',
             self._on_local_position, qos)
+        # Ground truth for whether PX4 ever actually received/processed a
+        # command, instead of just trusting that publishing one worked.
+        # Added 2026-09-30 while debugging why instance 1's commands seemed
+        # to have no effect despite instance 0's identical code path working
+        # fine - without this, the script has no way to tell "PX4 rejected
+        # this" apart from "PX4 never even saw this" from the ROS2 side.
+        self.create_subscription(
+            VehicleCommandAck, f'{prefix}/fmu/out/vehicle_command_ack_v1',
+            self._on_command_ack, qos)
 
         self.create_timer(1.0 / SETPOINT_HZ, self._tick)
         self.get_logger().info(
@@ -106,6 +115,15 @@ class Px4OffboardSmokeTest(Node):
 
     def _on_local_position(self, msg):
         self._local_position = (msg.x, msg.y, msg.z)
+
+    def _on_command_ack(self, msg):
+        # result: 0=ACCEPTED, 1=TEMPORARILY_REJECTED, 2=DENIED,
+        # 3=UNSUPPORTED, 4=FAILED, 5=IN_PROGRESS, 6=CANCELLED (standard PX4
+        # VEHICLE_CMD_RESULT enum - printed as a raw number here rather than
+        # trusting an exact constant name for this specific px4_msgs build).
+        self.get_logger().info(
+            f'VehicleCommandAck received: command={msg.command} '
+            f'result={msg.result}')
 
     def _now_us(self):
         return int(self.get_clock().now().nanoseconds / 1000)
