@@ -104,6 +104,7 @@ class CoordinationNode(Node):
         super().__init__('coordination_node')
 
         self.declare_parameter('drone_id', 0)
+        self.drone_id = self.get_parameter('drone_id').value
         self.declare_parameter('num_drones', 2)
         self.declare_parameter('initial_x', 0.0)
         self.declare_parameter('initial_y', 0.0)
@@ -119,12 +120,21 @@ class CoordinationNode(Node):
         self.declare_parameter('area_radius', 10.0)
         self.declare_parameter('use_px4_position', False)
         # PX4 v1.18.0-beta1 (the version on the project's drone server, see
-        # ARCHITECTURE.md) publishes this under a versioned topic name; the
-        # message type itself is still px4_msgs/msg/VehicleLocalPosition.
-        # Confirmed live via `ros2 topic list`/`ros2 topic type` 2026-09-15.
-        self.declare_parameter('px4_local_position_topic', '/fmu/out/vehicle_local_position_v1')
+        # ARCHITECTURE.md) publishes VehicleLocalPosition under a versioned
+        # topic name. PX4's uXRCE-DDS bridge also auto-namespaces every
+        # instance after the first under /px4_{instance}/fmu/... - instance
+        # 0 keeps the plain, unprefixed /fmu/... topics (confirmed live
+        # 2026-09-30, running a second PX4 SITL instance alongside the
+        # first and diffing `ros2 topic list`). drone_id is assumed to
+        # match the PX4 instance's own `-i N` flag (same convention
+        # demo_run.sh already uses pairing drone_id with initial_x/y), so
+        # the default topic name is computed from it instead of being
+        # hardcoded to the single-drone case.
+        px4_prefix = '' if self.drone_id == 0 else f'/px4_{self.drone_id}'
+        self.declare_parameter(
+            'px4_local_position_topic',
+            f'{px4_prefix}/fmu/out/vehicle_local_position_v1')
 
-        self.drone_id = self.get_parameter('drone_id').value
         self.num_drones = self.get_parameter('num_drones').value
         init_x = self.get_parameter('initial_x').value
         init_y = self.get_parameter('initial_y').value

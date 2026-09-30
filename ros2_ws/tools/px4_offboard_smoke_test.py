@@ -59,10 +59,11 @@ TICKS_BEFORE_ARM = TICKS_BEFORE_MODE_SWITCH + 2
 
 
 class Px4OffboardSmokeTest(Node):
-    def __init__(self, hold_altitude, duration):
+    def __init__(self, hold_altitude, duration, instance=0):
         super().__init__('px4_offboard_smoke_test')
         self.hold_altitude = hold_altitude
         self.duration = duration
+        self.instance = instance
 
         self._setpoint_count = 0
         self._armed = False
@@ -70,6 +71,13 @@ class Px4OffboardSmokeTest(Node):
         self._landing = False
         self._land_sent = False
         self._local_position = None  # (x, y, z) NED, from PX4 telemetry
+
+        # PX4's uXRCE-DDS bridge auto-namespaces every instance after the
+        # first under /px4_{instance}/fmu/... - instance 0 keeps the plain,
+        # unprefixed /fmu/... topics. Confirmed live 2026-09-30 by running a
+        # second PX4 SITL instance alongside the first and diffing
+        # `ros2 topic list` (see ARCHITECTURE.md's "PX4 telemetry" section).
+        prefix = '' if instance == 0 else f'/px4_{instance}'
 
         # Same QoS shape PX4's own ROS 2 examples use for every uXRCE-DDS
         # topic: best-effort (this is a live control stream, a stale
@@ -82,13 +90,13 @@ class Px4OffboardSmokeTest(Node):
             depth=1,
         )
         self.offboard_mode_pub = self.create_publisher(
-            OffboardControlMode, '/fmu/in/offboard_control_mode', qos)
+            OffboardControlMode, f'{prefix}/fmu/in/offboard_control_mode', qos)
         self.trajectory_pub = self.create_publisher(
-            TrajectorySetpoint, '/fmu/in/trajectory_setpoint', qos)
+            TrajectorySetpoint, f'{prefix}/fmu/in/trajectory_setpoint', qos)
         self.command_pub = self.create_publisher(
-            VehicleCommand, '/fmu/in/vehicle_command', qos)
+            VehicleCommand, f'{prefix}/fmu/in/vehicle_command', qos)
         self.create_subscription(
-            VehicleLocalPosition, '/fmu/out/vehicle_local_position_v1',
+            VehicleLocalPosition, f'{prefix}/fmu/out/vehicle_local_position_v1',
             self._on_local_position, qos)
 
         self.create_timer(1.0 / SETPOINT_HZ, self._tick)
@@ -188,10 +196,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--hold-altitude', type=float, default=3.0)
     parser.add_argument('--duration', type=float, default=20.0)
+    parser.add_argument(
+        '--instance', type=int, default=0,
+        help='PX4 instance number this targets (its own -i N flag). 0 uses '
+             'the plain /fmu/... topics; N>0 uses /px4_N/fmu/... (PX4\'s own '
+             'uXRCE-DDS auto-namespacing - see ARCHITECTURE.md).')
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
-    node = Px4OffboardSmokeTest(args.hold_altitude, args.duration)
+    node = Px4OffboardSmokeTest(args.hold_altitude, args.duration, args.instance)
 
     # Same signal-safety lesson learned from visualize_run.py's earlier
     # deadlock (see ARCHITECTURE.md/that file's history): the handler only

@@ -15,15 +15,21 @@ but with an empty neighbor list (one drone, nobody to spread out from) — this
 exercises the "no neighbor data" fallback path (distance-from-area-center)
 fixed 2026-09-29, not the neighbor-spread path, since there's no second drone
 here to spread out from. That's fine for this isolated single-drone test; the
-neighbor-spread path only matters once two real drones are flying and
-bridged, which needs the still-open PX4 topic-namespacing question resolved
-first (see ARCHITECTURE.md).
+neighbor-spread path only matters once two real drones are flying
+simultaneously (multi-drone PX4 topic namespacing itself was resolved
+2026-09-30 — see ARCHITECTURE.md's "PX4 telemetry" section — but this script
+still needs to actually be run twice, once per instance, to exercise it).
 
-Run the same way as px4_offboard_smoke_test.py — single PX4 SITL instance +
-Agent already bridged, NAV_DLL_ACT set to 0 for this session (see
-ARCHITECTURE.md's PX4 offboard section):
+Run the same way as px4_offboard_smoke_test.py — PX4 SITL instance(s) + Agent
+already bridged, NAV_DLL_ACT set to 0 for this session (see ARCHITECTURE.md's
+PX4 offboard section). Pass --instance to target a PX4 instance other than 0
+(its own -i N flag), and --initial-x/--initial-y to match wherever that
+instance actually spawned (used as both PSO's bootstrap position and its
+area-coverage center, so "spread out" is relative to this drone's own start,
+not instance 0's):
 
     python3 tools/px4_offboard_pso_test.py --hold-altitude 3.0 --duration 30 --area-radius 5.0
+    python3 tools/px4_offboard_pso_test.py --instance 1 --initial-x 5.0 --initial-y 5.0 --hold-altitude 3.0 --duration 30 --area-radius 5.0
 """
 
 import argparse
@@ -38,13 +44,12 @@ from px4_offboard_smoke_test import Px4OffboardSmokeTest, SETPOINT_HZ
 
 
 class Px4OffboardPsoTest(Px4OffboardSmokeTest):
-    def __init__(self, hold_altitude, duration, area_radius):
-        super().__init__(hold_altitude, duration)
-        # area_center=(0,0): this drone's own local-frame origin, same
-        # convention coordination_node.py uses for initial_x/initial_y.
+    def __init__(self, hold_altitude, duration, area_radius,
+                 instance=0, initial_position=(0.0, 0.0)):
+        super().__init__(hold_altitude, duration, instance)
         self.pso = ParticleSwarmSearch(
-            drone_id=0, initial_position=(0.0, 0.0),
-            fitness_fn=make_coverage_fitness((0.0, 0.0), area_radius))
+            drone_id=instance, initial_position=initial_position,
+            fitness_fn=make_coverage_fitness(initial_position, area_radius))
         self.get_logger().info(
             f'PSO-driven search active once airborne (area_radius={area_radius}m)')
 
@@ -70,13 +75,19 @@ def main():
     parser.add_argument(
         '--area-radius', type=float, default=5.0,
         help='Soft bound for the coverage fitness (see make_coverage_fitness) '
-             '- how far from the origin this drone will roam before the '
+             '- how far from this drone\'s own start it will roam before the '
              "overreach penalty starts pulling it back.")
+    parser.add_argument(
+        '--instance', type=int, default=0,
+        help='PX4 instance number this targets (its own -i N flag).')
+    parser.add_argument('--initial-x', type=float, default=0.0)
+    parser.add_argument('--initial-y', type=float, default=0.0)
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
     node = Px4OffboardPsoTest(
-        args.hold_altitude, args.duration, args.area_radius)
+        args.hold_altitude, args.duration, args.area_radius,
+        args.instance, (args.initial_x, args.initial_y))
 
     # Same signal-safety pattern as px4_offboard_smoke_test.py and, before
     # that, visualize_run.py's fixed deadlock: the handler only sets a flag,

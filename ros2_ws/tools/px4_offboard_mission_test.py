@@ -15,18 +15,21 @@ With only one drone there's no bidding contest to resolve (CbbaAgent.
 build_bundle() just wins the task immediately, same code path as the
 two-drone case, just uncontested) — this is deliberately about proving the
 state machine + navigate.py actually fly a real vehicle correctly, not about
-exercising consensus, which needs a second drone (still blocked on the
-open PX4 topic-namespacing question — see ARCHITECTURE.md).
+exercising consensus, which needs a second drone running this script
+simultaneously (multi-drone PX4 topic namespacing itself is resolved — see
+ARCHITECTURE.md's "PX4 telemetry" section — this script just hasn't been run
+that way yet).
 
 The "detection" isn't a real perception pipeline — it fires automatically
 `--detect-after` seconds after arming, at the fixed `--target-x`/`--target-y`
 position, the same deliberate simplification demo_run.sh already uses for
 the two-drone ROS2-only demo.
 
-Run the same way as the other px4_offboard_*.py scripts — single PX4 SITL
-instance + Agent already bridged, NAV_DLL_ACT set to 0 this session, and
-(new gotcha found 2026-09-30) sensor_baro_sim started if `listener
-sensor_baro` ever shows "never published" (see ARCHITECTURE.md):
+Run the same way as the other px4_offboard_*.py scripts — PX4 SITL
+instance(s) + Agent already bridged, NAV_DLL_ACT set to 0 this session, and
+sensor_baro_sim started if `listener sensor_baro` ever shows "never
+published" (see ARCHITECTURE.md). Pass --instance/--initial-x/--initial-y to
+target an instance other than 0:
 
     python3 tools/px4_offboard_mission_test.py --hold-altitude 3.0 \\
         --duration 45 --area-radius 5.0 --target-x 3.0 --target-y 3.0 \\
@@ -52,12 +55,13 @@ ARRIVAL_RADIUS_M = 0.3  # must match navigate.py's step_toward default
 
 class Px4OffboardMissionTest(Px4OffboardSmokeTest):
     def __init__(self, hold_altitude, duration, area_radius,
-                 target, detect_after):
-        super().__init__(hold_altitude, duration)
+                 target, detect_after, instance=0,
+                 initial_position=(0.0, 0.0)):
+        super().__init__(hold_altitude, duration, instance)
         self.pso = ParticleSwarmSearch(
-            drone_id=0, initial_position=(0.0, 0.0),
-            fitness_fn=make_coverage_fitness((0.0, 0.0), area_radius))
-        self.cbba = CbbaAgent(drone_id=0)
+            drone_id=instance, initial_position=initial_position,
+            fitness_fn=make_coverage_fitness(initial_position, area_radius))
+        self.cbba = CbbaAgent(drone_id=instance)
         self.target = target
         self.detect_after = detect_after
         self._detected = False
@@ -116,12 +120,18 @@ def main():
     parser.add_argument(
         '--detect-after', type=float, default=15.0,
         help='Seconds after arming before the simulated detection fires.')
+    parser.add_argument(
+        '--instance', type=int, default=0,
+        help='PX4 instance number this targets (its own -i N flag).')
+    parser.add_argument('--initial-x', type=float, default=0.0)
+    parser.add_argument('--initial-y', type=float, default=0.0)
     args, ros_args = parser.parse_known_args()
 
     rclpy.init(args=ros_args)
     node = Px4OffboardMissionTest(
         args.hold_altitude, args.duration, args.area_radius,
-        (args.target_x, args.target_y), args.detect_after)
+        (args.target_x, args.target_y), args.detect_after,
+        args.instance, (args.initial_x, args.initial_y))
 
     def _handle_stop_signal(signum, frame):
         node.request_landing()

@@ -260,6 +260,22 @@ own "next report" scope:**
   warning and falls back to the internally-simulated position instead of
   crashing (verified 2026-09-15).
 
+  **Multi-drone topic namespacing — resolved 2026-09-30, turned out to need
+  no work at all.** This was flagged as an open question for weeks (both
+  drones' `/fmu/in|out/...` topics looked unnamespaced, seemingly guaranteed
+  to collide once a second real vehicle was bridged). Tested directly:
+  launched a second PX4 SITL instance (`-i 1`) alongside the first, both
+  connected to the same already-running Micro-XRCE-DDS Agent, and diffed
+  `ros2 topic list`. Result: PX4's own uXRCE-DDS bridge already auto-
+  namespaces every instance after the first under `/px4_{instance}/fmu/...`
+  — instance 0 keeps the plain, unprefixed `/fmu/...` topics, instance 1's
+  entire topic set appeared under `/px4_1/fmu/...`, with zero manual
+  configuration. `coordination_node.py`'s `px4_local_position_topic`
+  parameter default is now computed from `drone_id` (assumed to match the
+  PX4 instance's own `-i N` flag, same convention `demo_run.sh` already uses
+  pairing `drone_id` with `initial_x`/`initial_y`) instead of being
+  hardcoded to the single-drone case.
+
   **The project's actual sim/hardware server is `uavintern@gpu` (SSH)**,
   under `~/sivana/`: `PX4-Autopilot` (real repo, `v1.18.0-beta1`, already
   built), `px4_sim` (pixi env with Gazebo Harmonic — `gz-sim8`/`gz-launch7`,
@@ -441,10 +457,11 @@ exists as a way to test the *other* return path specifically, if you want to iso
    `VEHICLE_CMD_DO_SET_MODE` (custom main mode 6 = OFFBOARD), request
    `VEHICLE_CMD_COMPONENT_ARM_DISARM`, hold position at a fixed altitude, and
    `VEHICLE_CMD_NAV_LAND` on SIGINT or after `--duration`. Only targets a single
-   vehicle (`target_system=1`, unnamespaced `/fmu/in|out/...` topics) — multi-drone
-   topic namespacing (so two drones' uXRCE-DDS Agent bridges don't collide on the
-   same command/telemetry topic names) is a separate, still-open question, same one
-   flagged under "PX4 telemetry" above.
+   vehicle (`target_system=1`, unnamespaced `/fmu/in|out/...` topics). This script
+   still only targets instance 0's plain topic names — multi-drone namespacing was
+   resolved 2026-09-30 (see "PX4 telemetry" above: PX4 auto-namespaces instance
+   N>0 under `/px4_N/fmu/...`, no config needed), but this specific script hasn't
+   been generalized to target an arbitrary instance yet.
 
    **Real blocker hit and fixed on first run**: PX4 refused to arm at all —
    `health_and_arming_checks: Preflight Fail: No connection to the GCS` — and even
@@ -486,8 +503,8 @@ exists as a way to test the *other* return path specifically, if you want to iso
    behavior. Uses `make_coverage_fitness` with an empty neighbor list (one
    drone), so this specifically exercises the "no neighbor data" fallback path
    (distance-from-area-center) fixed 2026-09-29, not the neighbor-spread path —
-   that needs a second real drone, which needs the topic-namespacing question
-   below resolved first.
+   that needs a second real drone running simultaneously, which this script
+   doesn't yet do (see "still needed" note at the end of this item).
 
    **Confirmed live 2026-09-30**: same real gotcha as the day before but a
    different sensor — PX4 refused to arm with `Preflight Fail: barometer 0
@@ -535,8 +552,11 @@ exists as a way to test the *other* return path specifically, if you want to iso
    pipeline — not just PSO output reaching a vehicle, but the real
    search/detect/navigate/complete/resume-search cycle — proven on real flight,
    not only the ROS2-only ground-truth demos.
-   Remaining before combining with the two-drone scenario: resolve multi-drone
-   PX4 topic namespacing.
+   Remaining before combining with the two-drone scenario: generalize this
+   script (and `px4_offboard_pso_test.py`) to target an arbitrary PX4 instance
+   via the now-known `/px4_N/fmu/...` namespacing (see "PX4 telemetry" above)
+   instead of only instance 0's plain topics, then actually run two of them
+   simultaneously against the two-instance PX4 setup.
    **Must carry collision safety with it**: today's hard
    floor (`separation.py`) teleports a simulated position, which stops making
    sense once something is actually flying — it needs to become a constraint on
