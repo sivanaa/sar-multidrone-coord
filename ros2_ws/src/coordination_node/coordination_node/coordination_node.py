@@ -31,6 +31,14 @@ ARRIVAL_RADIUS_M = 0.3  # must match navigate.py's step_toward default
 STATE_SEARCH = AgentState.STATE_SEARCH
 STATE_TASK_ALLOCATION = AgentState.STATE_TASK_ALLOCATION
 
+# Real PX4 offboard control constants (see _setup_px4_offboard_control).
+PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6
+OFFBOARD_HZ = 10.0
+# ~2s of streaming at 10Hz before requesting the mode switch - PX4 rejects
+# switching into OFFBOARD without recent valid setpoints already flowing.
+OFFBOARD_TICKS_BEFORE_MODE_SWITCH = 20
+OFFBOARD_TICKS_BEFORE_ARM = OFFBOARD_TICKS_BEFORE_MODE_SWITCH + 2
+
 
 def make_coverage_fitness(area_center, area_radius):
     """Search-value function: rewards being far from your nearest known
@@ -119,6 +127,8 @@ class CoordinationNode(Node):
         self.declare_parameter('area_center_y', 0.0)
         self.declare_parameter('area_radius', 10.0)
         self.declare_parameter('use_px4_position', False)
+        self.declare_parameter('use_px4_offboard', False)
+        self.declare_parameter('hold_altitude', 3.0)
         # PX4 v1.18.0-beta1 (the version on the project's drone server, see
         # ARCHITECTURE.md) publishes VehicleLocalPosition under a versioned
         # topic name. PX4's uXRCE-DDS bridge also auto-namespaces every
@@ -158,8 +168,21 @@ class CoordinationNode(Node):
         # same as "not using real position yet".
         self._real_position = None
         self.use_px4_position = self.get_parameter('use_px4_position').value
+        self.use_px4_offboard = self.get_parameter('use_px4_offboard').value
+        self.hold_altitude = self.get_parameter('hold_altitude').value
+        # Setpoint actually sent to PX4 each offboard tick - starts at the
+        # drone's own initial position (hold in place) until the first
+        # PSO/navigate step computes a real commanded target.
+        self._commanded_xy = (init_x, init_y)
+        if self.use_px4_offboard and not self.use_px4_position:
+            self.get_logger().warning(
+                'use_px4_offboard:=true implies use_px4_position - '
+                'enabling it automatically.')
+            self.use_px4_position = True
         if self.use_px4_position:
             self._setup_px4_position_subscription()
+        if self.use_px4_offboard:
+            self._setup_px4_offboard_control()
 
         self.neighbor_best = {}  # drone_id -> ((x, y), fitness)
         self.neighbor_position = {}  # drone_id -> (x, y), for separation only
@@ -234,6 +257,178 @@ class CoordinationNode(Node):
 
     def _on_px4_local_position(self, msg):
         self._real_position = (msg.x, msg.y)
+
+    # ---- PX4 real offboard control (optional) ------------------------------
+
+    def _setup_px4_offboard_control(self):
+        """Actually fly a real PX4 vehicle from this node's own PSO/navigate
+        output, instead of only reading telemetry (use_px4_position).
+
+        Setpoint streaming (OffboardControlMode + TrajectorySetpoint) goes
+        over DDS, same as the standalone px4_offboard_*_test.py scripts -
+        that path is solid for every instance, proven across many live
+        runs. ARM and mode-switch (DO_SET_MODE) instead go over plain
+        MAVLink, not DDS's VehicleCommand topic: PX4 SITL silently drops
+        inbound DDS VehicleCommand messages for any instance N>0 (a known,
+        unresolved upstream bug - GitHub px4/PX4-Autopilot#21284), confirmed
+        empirically on two independent machines (2026-09-30 through
+        2026-10-02). MAVLink's own command path isn't affected at all -
+        confirmed live 2026-10-05: an identical ARM/DO_SET_MODE request
+        gets an immediate ACCEPTED ack over MAVLink on instance 1, same
+        instant the DDS equivalent is silently ignored. This also isn't a
+        sim-only workaround - MAVLink is the standard way a real companion
+        computer talks to PX4 on actual hardware too.
+        """
+        try:
+            from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint
+        except ImportError:
+            self.get_logger().warning(
+                'use_px4_offboard:=true but px4_msgs is not present in '
+                'ros2_ws/src - rebuild with it vendored in (see '
+                'ARCHITECTURE.md) - falling back to simulated-only '
+                'control.')
+            self.use_px4_offboard = False
+            return
+        try:
+            from pymavlink import mavutil
+        except ImportError:
+            self.get_logger().warning(
+                'use_px4_offboard:=true but pymavlink is not installed '
+                '(pip install pymavlink) - falling back to simulated-only '
+                'control.')
+            self.use_px4_offboard = False
+            return
+
+        from rclpy.qos import (
+            QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy)
+        qos_profile = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        px4_prefix = '' if self.drone_id == 0 else f'/px4_{self.drone_id}'
+        self._OffboardControlMode = OffboardControlMode
+        self._TrajectorySetpoint = TrajectorySetpoint
+        self._mavutil = mavutil
+        self._offboard_mode_pub = self.create_publisher(
+            OffboardControlMode, f'{px4_prefix}/fmu/in/offboard_control_mode',
+            qos_profile)
+        self._trajectory_pub = self.create_publisher(
+            TrajectorySetpoint, f'{px4_prefix}/fmu/in/trajectory_setpoint',
+            qos_profile)
+
+        # Each PX4 SITL instance exposes its own 'Normal'-mode MAVLink UDP
+        # link on local port 18570 + instance (confirmed from every
+        # instance's own boot log), and reports itself as MAVLink
+        # system-id instance+1 - both conventions assume drone_id matches
+        # the PX4 -i N instance number, same assumption px4_prefix above
+        # already makes.
+        mavlink_port = 18570 + self.drone_id
+        self._mavlink_target_system = self.drone_id + 1
+        self._mavlink = mavutil.mavlink_connection(
+            f'udpout:127.0.0.1:{mavlink_port}', source_system=255)
+        # udpout only learns our reply address once PX4 has received a
+        # packet FROM us - without this, PX4 has no one to send heartbeats
+        # back to, though outbound commands from us would still arrive
+        # either way. Sent periodically afterward (see
+        # _offboard_control_tick) so PX4 doesn't log a lost-GCS warning.
+        self._send_mavlink_heartbeat()
+
+        self._offboard_setpoint_count = 0
+        self._px4_mode_requested = False
+        self._px4_armed = False
+        self._landing_requested = False
+        self._land_sent = False
+        self.create_timer(1.0 / OFFBOARD_HZ, self._offboard_control_tick)
+        self.get_logger().info(
+            f'Real PX4 offboard control enabled for drone {self.drone_id}: '
+            f'DDS setpoints on {px4_prefix or "(unprefixed)"}/fmu/in/..., '
+            f'MAVLink ARM/mode-switch on udp port {mavlink_port}.')
+
+    def _now_us(self):
+        return int(self.get_clock().now().nanoseconds / 1000)
+
+    def _send_mavlink_heartbeat(self):
+        # A raw UDP socket send can occasionally raise (e.g. a transient OS-
+        # level hiccup) - an uncaught exception here would propagate out of
+        # the timer callback and silently kill the whole node (observed
+        # live 2026-10-05: the ROS2 process disappeared with no traceback
+        # captured, and PX4's own lost-setpoint-stream failsafe was what
+        # actually brought the vehicle down safely, not our own landing
+        # code). Logging and skipping this one send is far better than
+        # losing the whole control loop over it - the next tick tries again.
+        try:
+            self._mavlink.mav.heartbeat_send(
+                self._mavutil.mavlink.MAV_TYPE_GCS,
+                self._mavutil.mavlink.MAV_AUTOPILOT_INVALID, 0, 0, 0)
+        except OSError as exc:
+            self.get_logger().warning(f'MAVLink heartbeat send failed: {exc}')
+
+    def _send_mavlink_command(self, command, param1=0.0, param2=0.0):
+        try:
+            self._mavlink.mav.command_long_send(
+                self._mavlink_target_system, 1,  # component 1 = autopilot
+                command, 0, param1, param2, 0, 0, 0, 0, 0)
+        except OSError as exc:
+            self.get_logger().warning(
+                f'MAVLink command {command} send failed: {exc}')
+
+    def _publish_offboard_setpoint(self):
+        heartbeat = self._OffboardControlMode()
+        heartbeat.timestamp = self._now_us()
+        heartbeat.position = True
+        self._offboard_mode_pub.publish(heartbeat)
+
+        x, y = self._commanded_xy
+        setpoint = self._TrajectorySetpoint()
+        setpoint.timestamp = self._now_us()
+        # NED frame: down is positive, so climbing is a NEGATIVE z.
+        setpoint.position = [x, y, -self.hold_altitude]
+        setpoint.yaw = 0.0
+        self._trajectory_pub.publish(setpoint)
+
+    def request_landing(self):
+        """Called on SIGINT/SIGTERM (see main()). Land via MAVLink, same as
+        ARM/mode-switch - never just stop publishing and leave a real
+        vehicle hanging mid-air."""
+        self._landing_requested = True
+
+    def _offboard_control_tick(self):
+        if self._landing_requested:
+            if not self._land_sent:
+                self._send_mavlink_command(
+                    self._mavutil.mavlink.MAV_CMD_NAV_LAND)
+                self._land_sent = True
+                self.get_logger().info(
+                    f'Drone {self.drone_id}: landing commanded (MAVLink).')
+            return
+
+        # Must keep streaming every tick regardless of arm state - this is
+        # what PX4 checks to decide whether OFFBOARD is still valid, and
+        # it's also what it needs already flowing before it accepts the
+        # mode-switch request below.
+        self._publish_offboard_setpoint()
+        self._offboard_setpoint_count += 1
+        if self._offboard_setpoint_count % int(OFFBOARD_HZ) == 0:
+            self._send_mavlink_heartbeat()
+
+        if (not self._px4_mode_requested
+                and self._offboard_setpoint_count
+                == OFFBOARD_TICKS_BEFORE_MODE_SWITCH):
+            self._send_mavlink_command(
+                self._mavutil.mavlink.MAV_CMD_DO_SET_MODE,
+                param1=1, param2=PX4_CUSTOM_MAIN_MODE_OFFBOARD)
+            self._px4_mode_requested = True
+            self.get_logger().info(
+                f'Drone {self.drone_id}: requested OFFBOARD mode (MAVLink).')
+        elif (not self._px4_armed
+                and self._offboard_setpoint_count == OFFBOARD_TICKS_BEFORE_ARM):
+            self._send_mavlink_command(
+                self._mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, param1=1)
+            self._px4_armed = True
+            self.get_logger().info(
+                f'Drone {self.drone_id}: requested ARM (MAVLink).')
 
     # ---- PSO / neighbor tracking -------------------------------------------
 
@@ -366,9 +561,12 @@ class CoordinationNode(Node):
 
     def _tick(self):
         if self.state == STATE_SEARCH:
-            self.pso.step(dt=0.5, swarm_best_position=self._swarm_best(),
-                          neighbor_positions=list(self.neighbor_position.values()),
-                          real_position=self._real_position)
+            commanded_x, commanded_y = self.pso.step(
+                dt=0.5, swarm_best_position=self._swarm_best(),
+                neighbor_positions=list(self.neighbor_position.values()),
+                real_position=self._real_position)
+            if self.use_px4_offboard:
+                self._commanded_xy = (commanded_x, commanded_y)
         elif self.state == STATE_TASK_ALLOCATION:
             self._navigate_to_current_task(dt=0.5)
         self._enforce_collision_safety()
@@ -409,13 +607,15 @@ class CoordinationNode(Node):
         task = self.cbba.tasks.get(task_id)
         if task is None:
             return
-        tracked_x, tracked_y, _commanded_x, _commanded_y = step_toward(
+        tracked_x, tracked_y, commanded_x, commanded_y = step_toward(
             self.pso.state.position, task.position, dt,
             max_speed=self.pso.max_speed, arrival_radius=ARRIVAL_RADIUS_M,
             real_position=self._real_position,
             neighbor_positions=list(self.neighbor_position.values()),
             min_separation=MIN_SEPARATION_M)
         self.pso.state.position = (tracked_x, tracked_y)
+        if self.use_px4_offboard:
+            self._commanded_xy = (commanded_x, commanded_y)
 
         dx = task.position[0] - self.pso.state.position[0]
         dy = task.position[1] - self.pso.state.position[1]
@@ -428,8 +628,33 @@ class CoordinationNode(Node):
 def main(args=None):
     rclpy.init(args=args)
     node = CoordinationNode()
+
+    if not node.use_px4_offboard:
+        try:
+            rclpy.spin(node)
+        finally:
+            node.destroy_node()
+            rclpy.shutdown()
+        return
+
+    # Real flight: never just stop publishing and leave a vehicle hanging
+    # mid-air - same safe signal-handling pattern used by the standalone
+    # px4_offboard_*_test.py scripts (the handler only sets a flag;
+    # rclpy.shutdown() happens exactly once, at the very end, after
+    # destroy_node() - see ARCHITECTURE.md for the deadlock this avoids).
+    import signal
+
+    def _handle_stop_signal(signum, frame):
+        node.request_landing()
+
+    signal.signal(signal.SIGINT, _handle_stop_signal)
+    signal.signal(signal.SIGTERM, _handle_stop_signal)
+
     try:
-        rclpy.spin(node)
+        while rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=0.5)
+            if node._land_sent:
+                break
     finally:
         node.destroy_node()
         rclpy.shutdown()
