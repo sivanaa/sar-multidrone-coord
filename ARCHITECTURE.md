@@ -4,7 +4,7 @@ Status: **in progress** — core structure and message design are in place and
 now build/run-verified end-to-end (colcon build + live two-drone smoke test,
 2026-09-15); bid function, fitness function, and real telemetry wiring are
 the open work.
-Last updated 2026-09-15.
+Last updated 2026-10-05.
 
 ## Algorithm choice (from the project report)
 
@@ -423,6 +423,140 @@ letting a run continue past arrival — watch `agent_state`'s `state` field flip
 a few ticks after `bundle_state`'s `bundle` empties out. The "outbid" scenario (manually
 publishing a competing `BundleState` with a higher bid and a fresher timestamp) still
 exists as a way to test the *other* return path specifically, if you want to isolate it.
+
+## Running the two-drone PX4 + Gazebo simulation (with the 3D view)
+
+The full recipe for two real PX4 SITL vehicles flown by `coordination_node`
+(`use_px4_offboard:=true`), confirmed end to end 2026-10-05 on the lab's
+Windows + WSL Ubuntu-22.04 machine with the Gazebo GUI. Paths assume a WSL
+home with `PX4-Autopilot`, `sar-multidrone-coord` and a v2.4.x
+`Micro-XRCE-DDS-Agent` build; on that machine the agent is
+`~/Micro-XRCE-DDS-Agent-243` (the plain `~/Micro-XRCE-DDS-Agent` there is an
+old, incompatible v1.4.2 — always launch the agent by full path). The
+`launch_*.sh` / `run_coord*.sh` scripts in the repo root are the same steps
+in tmux form, but hardcode `/home/sivan` and the v1.4.2 agent path, so they
+need editing before use on another machine.
+
+### Shared coordinate frame — fixed 2026-10-05
+
+Every PX4 instance reports `VehicleLocalPosition` and accepts
+`TrajectorySetpoint` relative to **its own spawn point**. The node used to
+treat those as one shared frame, so drone 1 (spawned at 5,5) believed it was
+near the origin: its CBBA bids used wrong distances, the same target
+coordinate meant a different physical spot for each drone, and its startup
+setpoint pushed it toward (10,10). Now everything inside the node (PSO,
+CBBA, navigation, neighbor positions, target coordinates) lives in one
+shared frame — **drone 0's PX4 local NED frame** (x = north, y = east,
+origin at drone 0's spawn) — and only the PX4 boundary converts
+(`_px4_frame_origin` in `coordination_node.py`: add `initial_x/initial_y` on
+telemetry in, subtract on setpoints out).
+
+So `initial_x`/`initial_y` must be each drone's spawn position **in that
+shared NED frame**. Gazebo's world frame is ENU (x = east, y = north), so
+the axes swap:
+
+| Gazebo / `PX4_GZ_MODEL_POSE` | Shared frame (`initial_x`, `initial_y`, target coords) |
+|---|---|
+| `"gx,gy"` | `(gy, gx)` |
+| `"5,5"` | `(5, 5)` — symmetric, which is why the demo values didn't change |
+| target marker at Gazebo (4, 3) | target `{x: 3.0, y: 4.0}` |
+
+Confirmed live by dropping visible markers at each target (see below):
+target (3,4) was won by the closer drone 0 (bid 0.427), which flew to the
+marker at Gazebo (4,3) while drone 1 held at (5,5); target (6,7) was won by
+drone 1, which flew to Gazebo (7,6). Assumes PX4's EKF origin is the spawn
+point — true in SITL; real hardware will need the offset derived from
+`VehicleLocalPosition.ref_lat/ref_lon` instead of a launch parameter.
+
+### Launch sequence
+
+One terminal per step (on Windows: `wsl -d Ubuntu-22.04` first in each).
+Order matters — the shared Gazebo world must be up **before** any PX4
+instance, otherwise each instance spawns its own isolated world.
+
+```bash
+# 0. Clean slate (closing windows / Ctrl+C does NOT stop the backgrounded agent)
+pkill -f "gz sim"; pkill -f MicroXRCEAgent; pkill -f "px4_sitl_default/bin/px4"; pkill -f coordination_node
+
+# 1. Shared Gazebo world, with the 3D window (add --headless for no GUI)
+cd ~/PX4-Autopilot
+export GZ_SIM_SYSTEM_PLUGIN_PATH="$HOME/PX4-Autopilot/build/px4_sitl_default/src/modules/simulation/gz_plugins"
+python3 Tools/simulation/gz/simulation-gazebo
+
+# 2. PX4 instance 0 (wait for the Gazebo window first)
+cd ~/PX4-Autopilot
+PX4_SYS_AUTOSTART=4001 PX4_SIMULATOR=gz PX4_GZ_MODEL_POSE="0,0" PX4_GZ_MODEL=x500 ./build/px4_sitl_default/bin/px4 -i 0
+
+# 3. PX4 instance 1 (own DDS port)
+cd ~/PX4-Autopilot
+PX4_UXRCE_DDS_PORT=8889 PX4_SYS_AUTOSTART=4001 PX4_SIMULATOR=gz PX4_GZ_MODEL_POSE="5,5" PX4_GZ_MODEL=x500 ./build/px4_sitl_default/bin/px4 -i 1
+
+# 4. One DDS agent per instance (this terminal is then occupied - don't type other commands into it)
+~/Micro-XRCE-DDS-Agent-243/build/MicroXRCEAgent udp4 -p 8888 &
+~/Micro-XRCE-DDS-Agent-243/build/MicroXRCEAgent udp4 -p 8889
+
+# 5. One coordination node per drone (drone_id must match the PX4 -i N)
+cd ~/sar-multidrone-coord/ros2_ws && source /opt/ros/humble/setup.bash && source install/setup.bash
+ros2 run coordination_node coordination_node --ros-args -p drone_id:=0 -p num_drones:=2 -p initial_x:=0.0 -p initial_y:=0.0 -p use_px4_offboard:=true -p hold_altitude:=3.0 -p area_center_x:=4.0 -p area_center_y:=4.0 -p area_radius:=6.0
+ros2 run coordination_node coordination_node --ros-args -p drone_id:=1 -p num_drones:=2 -p initial_x:=5.0 -p initial_y:=5.0 -p use_px4_offboard:=true -p hold_altitude:=3.0 -p area_center_x:=4.0 -p area_center_y:=4.0 -p area_radius:=6.0
+
+# 6. Detection (any free, sourced terminal)
+ros2 service call /drone_0/coordination/detect_target coordination_msgs/srv/DetectTarget "{position: {x: 3.0, y: 4.0, z: 0.0}, target_type: 'person', confidence: 0.9}"
+```
+
+**Required in each PX4 shell after every launch** (runtime-only, not saved
+with `param save`; see "Next steps" item 3 for why):
+```
+param set NAV_DLL_ACT 0
+sensor_baro_sim start
+```
+Each node should log `Real PX4 offboard control enabled for drone N`, then
+`requested OFFBOARD mode` / `requested ARM` (MAVLink); each PX4 shell logs
+`Armed by external command` and `Takeoff detected`. A
+`falling back to simulated-only control` warning means `pymavlink`
+(`pip3 install --user pymavlink`) or `px4_msgs` is missing — the drones then
+won't move. Stop with Ctrl+C in the node terminals first (the node commands
+a MAVLink land on SIGINT), then step 0's cleanup line.
+
+### Watching what happens
+
+- **Targets aren't Gazebo objects** — a detection is just a coordinate, so
+  nothing appears in the 3D view on its own. Drop a visual-only marker
+  (no collision) at the target's **Gazebo** position, i.e. with x/y swapped
+  from the target coordinate (change `name`, `<pose>` and the colour per
+  marker):
+  ```bash
+  gz service -s /world/default/create --reqtype gz.msgs.EntityFactory --reptype gz.msgs.Boolean --timeout 3000 --req 'sdf: "<?xml version=\"1.0\"?><sdf version=\"1.9\"><model name=\"target_d0\"><static>true</static><pose>4 3 0.5 0 0 0</pose><link name=\"l\"><visual name=\"v\"><geometry><cylinder><radius>0.3</radius><length>1</length></cylinder></geometry><material><ambient>1 0 0 1</ambient><diffuse>1 0 0 1</diffuse></material></visual></link></model></sdf>"'
+  ```
+- **A drone's real position, in Gazebo coordinates** (the raw command's
+  output gets buried under SDF warnings, hence the filter):
+  ```bash
+  watch -n 1 "gz model -m x500_1 -p 2>/dev/null | grep -A1 XYZ"
+  ```
+  In the Gazebo GUI, right-click a model in the Entity Tree → *Move to* /
+  *Follow* to find it.
+- **Who bid and who won** — the node logs nothing about CBBA to its own
+  terminal; it's only on the `bundle_state` topics, which are published on
+  change and not latched, so start this **before** triggering the detection:
+  ```bash
+  ros2 topic echo /drone_1/coordination/bundle_state
+  ```
+  `winning_agent_ids` is the believed winner per task (index-aligned with
+  `known_task_ids`); the winner's `bundle` contains the task, the loser's is
+  `[]`, and the winner's empties again on arrival. Bids are
+  `confidence / (1 + distance_m)`, so higher is better and the ceiling is
+  the detection confidence itself: with confidence 0.9, a bid of 0.427 means
+  ~1.1 m away, 0.1 means ~8 m.
+
+### Known noise (harmless)
+
+- `ERROR [vehicle_imu] ... timestamp error` in the PX4 shells — late IMU
+  samples when the CPU-rendered Gazebo GUI (WSLg has no GPU path) stutters.
+  Gazebo's real-time factor stayed ~1.0 and both vehicles armed and flew
+  normally with it scrolling. Only worth investigating if `commander check`
+  shows a `Preflight Fail`.
+- `NodeShared::Publish() Error: Interrupted system call` and
+  `gz_frame_id ... not defined in SDF` warnings in the Gazebo terminal.
 
 ## Next steps
 
