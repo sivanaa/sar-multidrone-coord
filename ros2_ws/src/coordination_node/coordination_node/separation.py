@@ -34,3 +34,35 @@ def enforce_min_separation(candidate_position, neighbor_positions, min_separatio
             ux, uy = dx / distance, dy / distance
         x, y = nx + ux * min_separation, ny + uy * min_separation
     return (x, y)
+
+
+def constrain_setpoint(setpoint, current_position, neighbor_positions,
+                       min_separation):
+    """Hard floor for a real vehicle: adjust the position *setpoint* sent
+    to the flight controller rather than the vehicle's position, which is
+    ground truth and can't be teleported.
+
+    A setpoint inside a neighbor's `min_separation` circle is moved onto
+    that circle on the side facing `current_position` (where the vehicle
+    actually is), not on whichever side the setpoint happened to land.
+    enforce_min_separation's rule (push out along neighbor -> candidate) is
+    fine for a teleported simulated position, but for a setpoint it can
+    land on the far side of the neighbor, and the flight controller would
+    then fly the vehicle straight through the neighbor to reach it.
+    Routing *around* a neighbor stays the soft terms' job (pso.py,
+    navigate.py); this only guarantees the commanded point is never inside
+    the floor. Returns the (possibly adjusted) setpoint.
+    """
+    sx, sy = setpoint
+    cx, cy = current_position
+    for nx, ny in neighbor_positions:
+        if math.hypot(sx - nx, sy - ny) >= min_separation:
+            continue
+        dx, dy = cx - nx, cy - ny
+        distance = math.hypot(dx, dy)
+        if distance == 0:
+            ux, uy = 1.0, 0.0  # on top of the neighbor: pick an arbitrary side
+        else:
+            ux, uy = dx / distance, dy / distance
+        sx, sy = nx + ux * min_separation, ny + uy * min_separation
+    return (sx, sy)

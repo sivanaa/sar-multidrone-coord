@@ -176,14 +176,58 @@ own "next report" scope:**
     `MIN_SEPARATION_M`, one is pushed back out to exactly that distance. This
     is what actually closes the gap; the soft term just makes it rare for
     the hard floor to have to act.
-  Explicitly **not** covered: real PX4-controlled flight — the hard floor
-  currently adjusts a *simulated* position directly, which only makes sense
-  while nothing is actually flying the vehicle. Once the offboard command
-  loop exists (see "Next steps"), this needs to become a constraint on the
-  *commanded* setpoint instead, not a position teleport — noted so this
-  isn't mistaken for done once real flight starts. Also not covered: more
-  than pairwise-sequential resolution (fine for N=2, the real deployment
+  Real PX4-controlled flight is covered as of 2026-10-05 — see "Hard floor
+  for real vehicles" below; until then the floor was skipped entirely
+  whenever real telemetry was on. Still not covered: more than
+  pairwise-sequential resolution (fine for N=2, the real deployment
   target; would need a proper multi-body solve for larger swarms).
+
+  **Hard floor for real vehicles — added 2026-10-05.** A real vehicle's
+  position is ground truth and can't be teleported, so with
+  `use_px4_offboard` the floor now constrains the *commanded setpoint*
+  instead (`separation.py: constrain_setpoint`, called from
+  `_enforce_collision_safety` before `_offboard_control_tick` sends it).
+  Two design points, both found the hard way:
+  1. A setpoint inside a neighbor's circle is moved onto the circle on the
+     side facing where the vehicle **actually is** — not along
+     neighbor→setpoint like `enforce_min_separation`, which can land the
+     point on the far side of the neighbor so the flight controller flies
+     straight through it to get there (covered by
+     `test/test_separation.py`).
+  2. The setpoint floor is `SETPOINT_MIN_SEPARATION_M` = 1.8m, deliberately
+     above `MIN_SEPARATION_M` (1.5m): commanding exactly 1.5m let the real
+     distance wobble down to **1.40m** (PX4 tracking lag plus the 0.5s
+     tick). With the margin, the real distance held at **min 1.73m / mean
+     1.79m** over 30s of flight.
+  Only works because every drone now reports position in the same shared
+  frame (see "Shared coordinate frame" under the two-drone Gazebo section)
+  — before that, neighbor positions weren't comparable at all.
+
+  Confirmed live in Gazebo with two real PX4 vehicles (2026-10-05):
+  - **Test A — spawned 1m apart** (`PX4_GZ_MODEL_POSE="1,0"`,
+    `initial_x:=0.0 initial_y:=1.0` for drone 1): after takeoff they pushed
+    apart to the floor and held it (numbers above).
+  - **Test B — normal spawn + two targets**: red target won by the closer
+    drone 0 (bid 0.365 vs 0.281) and reached to 0.05m; green target won by
+    drone 1 (0.276 vs 0.131) and reached to 0.11m; closest drone-to-drone
+    distance across the run **2.06m**; no stalls.
+  Measure it with `ros2_ws/tools/drone_distance.sh` (live distance plus
+  closest-so-far; occasionally prints one bogus line when `gz model`
+  returns a bad pose read — two drones "swapping" spawn points for a single
+  0.5s sample — ignore isolated jumps like that).
+
+  **Known limits of the setpoint floor:**
+  - **Possible head-on stall**: the floor stops a drone at 1.8m on its own
+    side, but the soft "go around" terms in `navigate.py`/`pso.py` only act
+    inside 1.5m — so a drone whose straight path to a target runs through
+    a hovering neighbor may stop short instead of routing around. Not seen
+    in Test B (no crossing paths); needs a crossing-paths test, and likely
+    a soft-term radius at or above the setpoint floor.
+  - **Drones pinned together while searching**: in Test A both drones sat
+    at the floor for the whole run instead of spreading out — PSO's social
+    term pulls each toward the swarm-best point (drone 0's), and the floor
+    blocks it. The floor is doing its job; this is the search-quality
+    problem in "Next steps", made visible.
 
   **Two more real gaps found via live testing, same day.** Added the
   min-separation readout to `visualize_run.py` specifically because a
@@ -510,6 +554,14 @@ with `param save`; see "Next steps" item 3 for why):
 param set NAV_DLL_ACT 0
 sensor_baro_sim start
 ```
+Type both lines **before** starting that drone's coordination node: the
+node sends ARM exactly once, ~2s after it starts, and never retries — if
+PX4 isn't ready yet it logs `Arming denied: Resolve system health failures
+first` and the drone just sits on the ground in Offboard mode while the
+other one flies. Recover with `commander arm` in that PX4 shell (setpoints
+are already streaming, so it takes off and joins in). A real fix is open in
+"Next steps".
+
 Each node should log `Real PX4 offboard control enabled for drone N`, then
 `requested OFFBOARD mode` / `requested ARM` (MAVLink); each PX4 shell logs
 `Armed by external command` and `Takeoff detected`. A
@@ -535,6 +587,11 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
   ```
   In the Gazebo GUI, right-click a model in the Entity Tree → *Move to* /
   *Follow* to find it.
+- **Distance between the two drones**, live, plus the closest they've come
+  (for checking the collision floor):
+  ```bash
+  bash ~/sar-multidrone-coord/ros2_ws/tools/drone_distance.sh
+  ```
 - **Who bid and who won** — the node logs nothing about CBBA to its own
   terminal; it's only on the `bundle_state` topics, which are published on
   change and not latched, so start this **before** triggering the detection:
@@ -691,10 +748,9 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    via the now-known `/px4_N/fmu/...` namespacing (see "PX4 telemetry" above)
    instead of only instance 0's plain topics, then actually run two of them
    simultaneously against the two-instance PX4 setup.
-   **Must carry collision safety with it**: today's hard
-   floor (`separation.py`) teleports a simulated position, which stops making
-   sense once something is actually flying — it needs to become a constraint on
-   the commanded setpoint instead (see "Collision avoidance" above).
+   ~~**Must carry collision safety with it**~~ — done 2026-10-05: the hard
+   floor now constrains the commanded setpoint for real vehicles (see "Hard
+   floor for real vehicles" under "Collision avoidance" above).
 4. **Partially done 2026-09-29** — replaced the fitness function's worst structural
    problems (see "PSO fitness function" above: not comparable across drones, fought
    collision avoidance, rewarded moving away from a nearby target) with
@@ -702,3 +758,19 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    center/radius). Still not a real search-quality score, and the bid function
    (`cbba.py: bid_for`) hasn't been touched — both remain open for tuning against
    actual multi-drone runs, per the report's own deferred scope.
+   **Now visible on real vehicles (2026-10-05)**: two drones spawned 1m apart
+   stayed pinned against each other at the collision floor for a whole run
+   instead of spreading out to search (see "Known limits of the setpoint
+   floor" above).
+5. **Open (found 2026-10-05)** — retry ARM until PX4 actually reports armed.
+   `coordination_node.py` sends ARM once (`_offboard_control_tick`) and sets
+   `_px4_armed` on *send*, not on confirmation, so one early denial (PX4 not
+   ready yet) leaves that drone on the ground for the whole run. Should
+   re-send every few seconds until `VehicleStatus.arming_state` says armed —
+   matters for real hardware too, not just SITL.
+6. **Open** — crossing-paths test for the setpoint floor's possible head-on
+   stall (see "Known limits of the setpoint floor"), then start AirSim
+   planning: AirSim can run on the same PX4 SITL in place of Gazebo, so the
+   coordination node's DDS/MAVLink paths should carry over; the real new
+   work is a vision → `detect_target` bridge (detection pixel → world
+   position via drone pose and camera geometry).

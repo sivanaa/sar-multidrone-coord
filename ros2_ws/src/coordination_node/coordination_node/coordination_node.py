@@ -23,9 +23,17 @@ from coordination_msgs.srv import DetectTarget
 from coordination_node.pso import ParticleSwarmSearch
 from coordination_node.cbba import CbbaAgent, Task
 from coordination_node.navigate import step_toward
-from coordination_node.separation import enforce_min_separation
+from coordination_node.separation import (
+    constrain_setpoint, enforce_min_separation)
 
 MIN_SEPARATION_M = 1.5  # must match pso.py's default; see separation.py
+# Floor applied to real-vehicle *setpoints*, deliberately above
+# MIN_SEPARATION_M: PX4 tracks a setpoint with some lag and the setpoint
+# only updates every 0.5s tick, so commanding exactly 1.5m let the real
+# distance dip to 1.40m (measured live 2026-10-05, two drones spawned 1m
+# apart, ~+/-0.1m wobble around the commanded value). The margin keeps the
+# actual distance at or above MIN_SEPARATION_M.
+SETPOINT_MIN_SEPARATION_M = MIN_SEPARATION_M + 0.3
 ARRIVAL_RADIUS_M = 0.3  # must match navigate.py's step_toward default
 
 STATE_SEARCH = AgentState.STATE_SEARCH
@@ -600,13 +608,22 @@ class CoordinationNode(Node):
         the candidate position. See separation.py for why this exists
         separately from PSO's softer repulsion.
 
-        Skipped when real telemetry is active: a real vehicle's reported
-        position is ground truth, not something we can teleport away from a
-        neighbor — enforcing a real hard floor there means constraining the
-        *commanded* setpoint before it's sent, which doesn't exist yet (see
-        the offboard-command-loop item in ARCHITECTURE.md's next steps).
+        With real telemetry, the reported position is ground truth and
+        can't be teleported away from a neighbor, so the floor is applied to
+        the *commanded* setpoint instead (separation.py's
+        constrain_setpoint, with SETPOINT_MIN_SEPARATION_M's tracking
+        margin), before _offboard_control_tick sends it. Neighbor
+        positions are only comparable here because every drone reports in
+        the same shared frame (see _px4_frame_origin). Telemetry-only mode
+        (use_px4_position without offboard) commands nothing, so there is
+        nothing to constrain.
         """
         if self._real_position is not None:
+            if self.use_px4_offboard:
+                self._commanded_xy = constrain_setpoint(
+                    self._commanded_xy, self._real_position,
+                    list(self.neighbor_position.values()),
+                    SETPOINT_MIN_SEPARATION_M)
             return
         self.pso.state.position = enforce_min_separation(
             self.pso.state.position, list(self.neighbor_position.values()),
