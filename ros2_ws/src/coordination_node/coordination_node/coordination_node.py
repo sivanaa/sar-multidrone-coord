@@ -114,6 +114,14 @@ class CoordinationNode(Node):
         self.declare_parameter('drone_id', 0)
         self.drone_id = self.get_parameter('drone_id').value
         self.declare_parameter('num_drones', 2)
+        # Spawn position in the fleet's shared frame: drone 0's PX4 local
+        # NED frame (x = north, y = east, origin at drone 0's spawn point).
+        # Every drone's PX4 reports position relative to its OWN spawn
+        # point, so with real PX4 enabled this is also the offset that
+        # converts that local frame into the shared one (see
+        # _px4_frame_origin). Gazebo's world frame is ENU, so a vehicle
+        # spawned with PX4_GZ_MODEL_POSE="gx,gy" needs initial_x:=gy,
+        # initial_y:=gx here.
         self.declare_parameter('initial_x', 0.0)
         self.declare_parameter('initial_y', 0.0)
         # Soft bound for make_coverage_fitness's search-area penalty (see
@@ -174,6 +182,17 @@ class CoordinationNode(Node):
         # drone's own initial position (hold in place) until the first
         # PSO/navigate step computes a real commanded target.
         self._commanded_xy = (init_x, init_y)
+        # Where this drone's PX4 local-frame origin sits in the shared
+        # frame. Everything inside this node (PSO, CBBA bids, navigate,
+        # neighbor positions, target coordinates) is in the shared frame;
+        # only the PX4 boundary converts - add on telemetry in, subtract on
+        # setpoints out. Without it, every drone after the first believed
+        # it was at its own spawn point's origin, so bids compared
+        # distances in different frames and the same target coordinate
+        # meant a different physical spot for each drone. Assumes PX4's
+        # EKF origin is the spawn point, true in SITL; real hardware would
+        # need this derived from VehicleLocalPosition's ref_lat/ref_lon.
+        self._px4_frame_origin = (init_x, init_y)
         if self.use_px4_offboard and not self.use_px4_position:
             self.get_logger().warning(
                 'use_px4_offboard:=true implies use_px4_position - '
@@ -256,7 +275,8 @@ class CoordinationNode(Node):
             VehicleLocalPosition, topic, self._on_px4_local_position, qos_profile)
 
     def _on_px4_local_position(self, msg):
-        self._real_position = (msg.x, msg.y)
+        origin_x, origin_y = self._px4_frame_origin
+        self._real_position = (msg.x + origin_x, msg.y + origin_y)
 
     # ---- PX4 real offboard control (optional) ------------------------------
 
@@ -380,7 +400,10 @@ class CoordinationNode(Node):
         heartbeat.position = True
         self._offboard_mode_pub.publish(heartbeat)
 
-        x, y = self._commanded_xy
+        # Shared frame -> this vehicle's own PX4 local frame.
+        origin_x, origin_y = self._px4_frame_origin
+        x = self._commanded_xy[0] - origin_x
+        y = self._commanded_xy[1] - origin_y
         setpoint = self._TrajectorySetpoint()
         setpoint.timestamp = self._now_us()
         # NED frame: down is positive, so climbing is a NEGATIVE z.
