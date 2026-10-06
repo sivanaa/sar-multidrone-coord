@@ -76,6 +76,9 @@ ros2_ws/src/
   coordination_node/
     coordination_node/
       pso.py                  # PSO particle update — real, working
+      coverage.py             # search fitness: recently-seen grid + path clearance
+      offboard_sequence.py    # when to (re-)send OFFBOARD/ARM to PX4
+      separation.py           # collision floors (simulated position / PX4 setpoint)
       cbba.py                 # CBBA bundle + consensus — first draft
       navigate.py             # straight-line fly-to-task, once a task is won
       coordination_node.py    # rclpy Node: state machine, pub/sub wiring
@@ -99,8 +102,11 @@ own "next report" scope:**
 - **Bid function** (`cbba.py: bid_for`) — currently just confidence /
   (1 + distance). Report flags this as needing real tuning once there's
   telemetry to test against.
-- **PSO fitness function** (`coordination_node.py: make_coverage_fitness`,
-  replaced 2026-09-29) — rewards distance from your nearest known neighbor
+- **PSO fitness function — replaced again 2026-10-06 by a coverage map**
+  (`coverage.py`; see "Search: coverage map" below). The text in the rest of
+  this bullet describes the previous version, `make_coverage_fitness`
+  (2026-09-29), which is now only used by the single-drone tools scripts.
+  It rewarded distance from your nearest known neighbor
   (spread out, don't duplicate search effort), softly bounded by a shared
   `area_center`/`area_radius`, rather than any real search value. This is
   still a placeholder, not the flood-risk-weighted scoring from the
@@ -243,15 +249,52 @@ own "next report" scope:**
   - ~~Possible head-on stall~~ — confirmed real and fixed 2026-10-06 (Test
     C above, design points 1 and 3). Only tested against a *hovering*
     neighbor; two drones crossing while both move is still untested.
-  - **Drone returns to its spawn after a task**: in Test C, drone 0 flew
-    back to about (−0.2, −0.3) after finishing, instead of searching
-    around the area center (4,4). Not investigated yet — likely the same
-    PSO pull as the next item (personal/swarm best), not a safety issue.
-  - **Drones pinned together while searching**: in Test A both drones sat
-    at the floor for the whole run instead of spreading out — PSO's social
-    term pulls each toward the swarm-best point (drone 0's), and the floor
-    blocks it. The floor is doing its job; this is the search-quality
-    problem in "Next steps", made visible.
+  - ~~Drone returns to its spawn after a task~~ and ~~drones pinned
+    together while searching~~ (Tests A and C) — one root cause, fixed
+    2026-10-06, see "Search: coverage map" below.
+
+  **Search: coverage map — 2026-10-06.** Root cause of both items above,
+  confirmed by a dry run of the real `pso.py`: a personal best was scored
+  once, when first visited, and never re-scored, but the fitness
+  (nearest-neighbor spread) depends on where the neighbors are *now*.
+  Drone 0's spawn scored 7.07 while drone 1 was still 7m away; nothing it
+  found later beat that, so its spawn stayed its best, the cognitive pull
+  dragged it back, and it froze there (every seed). It was also the swarm
+  best, so the social pull dragged drone 1 onto it. Replaced with:
+  - **Fitness = unexplored ground** (`coverage.py: CoverageMap`): each node
+    keeps a 1m grid of when each cell in the area was last within
+    `sensor_radius` (1.5m) of *any* drone, built from its own position and
+    neighbors' AgentState — no new messages. A point is worth the stale
+    cells a drone there would see; cells go stale after `revisit_after_s`
+    (60s), so the search continues instead of ending after one pass.
+  - **No doubling up**: cells near a neighbor's current position or its
+    broadcast goal (`best_position`) don't count, and a goal whose path
+    passes within 2.5m of a neighbor's path to its goal loses 10 points
+    (`coverage.py: path_clearance`).
+  - **PSO** (`pso.py: _rescore_personal_best`) re-scores its personal best
+    every tick and is offered 8 random unexplored cells as candidate goals
+    (the map can score a point without visiting it); a candidate replaces
+    the current goal only if clearly better after a 0.3/m distance cost,
+    so the goal doesn't flip-flop. The swarm best is re-scored the same
+    way; since a neighbor's goal is claimed, a drone's own goal usually
+    wins, so the drones cooperate through the shared map and claims rather
+    than PSO's social pull.
+  - **Dry runs** (two drones, area r=6m at (4,4), PX4 tracking modeled):
+    drones split up at once, 95% covered in ~15s, then revisit. Separation
+    is the open cost: more motion means more crossings, and with neighbor
+    positions up to 0.5s stale, 4/40 three-minute runs dipped under 1.5m
+    (worst 1.37m) even with the path check (12/40 without it). Shorter
+    revisit times keep drones moving more but triple that (30s: 12/40).
+    Fully simulated mode (no PX4) is worse — no tracking lag to absorb the
+    staleness; worst 0.2–0.7m — so treat its separation numbers as
+    meaningless for this search. Measure live with `drone_distance.sh`.
+  - **Logs**: each node now prints its search progress every 5s (`searching:
+    at ..., heading for ..., area explored N%`), its bid for every new
+    target, every change of winner, and `reached target N - back to
+    searching`.
+  - Still not target-aware: every unexplored cell is worth the same. The
+    flood-risk-weighted scoring from the single-drone GPS routing would
+    slot in as a per-cell weight in `CoverageMap`.
 
   **Two more real gaps found via live testing, same day.** Added the
   min-separation readout to `visualize_run.py` specifically because a
@@ -538,6 +581,20 @@ point — true in SITL; real hardware will need the offset derived from
 
 ### Launch sequence
 
+**Shortcut (added 2026-10-06):** `bash ros2_ws/tools/sim.sh test-b` (or
+`test-c`, or `up` + `nodes` for a free-form run) does every step below in
+one tmux session named `sim` — Gazebo, both PX4s with the per-launch
+settings typed in, both agents, the nodes, the distance monitor, markers
+and detections. `bash ros2_ws/tools/sim.sh attach` to watch (Ctrl+b w picks
+a window, Ctrl+b d leaves it running), `bash ros2_ws/tools/sim.sh down` to
+stop — `down` first saves every window's full log to
+`~/sim_runs/<time>_<test>/` and prints the run's closest drone-to-drone
+distance (also appended to `~/sim_runs/summary.txt`). `sim.sh repeat N`
+runs `test-search` N times headless and lists those distances, for
+measuring separation across runs. Run `bash ros2_ws/tools/sim.sh` with no
+arguments for the full list.
+The manual steps stay documented here for when something needs debugging.
+
 One terminal per step (on Windows: `wsl -d Ubuntu-22.04` first in each).
 Order matters — the shared Gazebo world must be up **before** any PX4
 instance, otherwise each instance spawns its own isolated world.
@@ -578,17 +635,18 @@ with `param save`; see "Next steps" item 3 for why):
 param set NAV_DLL_ACT 0
 sensor_baro_sim start
 ```
-Type both lines **before** starting that drone's coordination node: the
-node sends ARM exactly once, ~2s after it starts, and never retries — if
-PX4 isn't ready yet it logs `Arming denied: Resolve system health failures
-first` and the drone just sits on the ground in Offboard mode while the
-other one flies. Recover with `commander arm` in that PX4 shell (setpoints
-are already streaming, so it takes off and joins in). A real fix is open in
-"Next steps".
+Type both lines before starting that drone's coordination node. If PX4
+isn't ready yet it logs `Arming denied: Resolve system health failures
+first` — since 2026-10-06 the node just asks again every 3s until PX4's
+`VehicleStatus` says armed and in OFFBOARD (see "Next steps" item 5), so
+`commander arm` by hand is no longer needed.
 
 Each node should log `Real PX4 offboard control enabled for drone N`, then
-`requested OFFBOARD mode` / `requested ARM` (MAVLink); each PX4 shell logs
-`Armed by external command` and `Takeoff detected`. A
+`requested OFFBOARD mode` / `requested ARM` (MAVLink, attempt 1, 2, ...)
+and finally `PX4 confirms armed in OFFBOARD`; each PX4 shell logs
+`Armed by external command` and `Takeoff detected`. Attempts that note
+`no VehicleStatus from PX4 yet` mean that drone's DDS agent isn't
+connected — the retries then never stop on their own. A
 `falling back to simulated-only control` warning means `pymavlink`
 (`pip3 install --user pymavlink`) or `px4_msgs` is missing — the drones then
 won't move. Stop with Ctrl+C in the node terminals first (the node commands
@@ -785,13 +843,19 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    **Now visible on real vehicles (2026-10-05)**: two drones spawned 1m apart
    stayed pinned against each other at the collision floor for a whole run
    instead of spreading out to search (see "Known limits of the setpoint
-   floor" above).
-5. **Open (found 2026-10-05)** — retry ARM until PX4 actually reports armed.
-   `coordination_node.py` sends ARM once (`_offboard_control_tick`) and sets
-   `_px4_armed` on *send*, not on confirmation, so one early denial (PX4 not
-   ready yet) leaves that drone on the ground for the whole run. Should
-   re-send every few seconds until `VehicleStatus.arming_state` says armed —
-   matters for real hardware too, not just SITL.
+   floor" above). **Replaced 2026-10-06** by the coverage-map search (see
+   "Search: coverage map"), pending a live run (`sim.sh test-search`).
+   Still open: per-cell search value (flood risk), the bid function, and
+   the residual separation dips that search motion causes.
+5. **Done 2026-10-06, pending live confirmation** — retry ARM until PX4
+   actually reports armed. `coordination_node.py` used to send ARM once and
+   set `_px4_armed` on *send*, not on confirmation, so one early denial (PX4
+   not ready yet) left that drone on the ground for the whole run. Now
+   OFFBOARD + ARM are re-sent every 3s (`offboard_sequence.py`, unit-tested)
+   until `/fmu/out/vehicle_status_v4` (`VehicleStatus`; the `_vN` suffix is
+   derived from `px4_msgs`' `MESSAGE_VERSION`) reports `ARMING_STATE_ARMED`
+   and `NAVIGATION_STATE_OFFBOARD`, then stop for good — so a later PX4
+   failsafe (e.g. auto-land) is never fought by re-arming behind its back.
 6. **Partially done 2026-10-06** — crossing-paths test against a hovering
    neighbor done, stall found and fixed (Test C, see "Hard floor for real
    vehicles"). Still open: both drones moving through each other's paths,

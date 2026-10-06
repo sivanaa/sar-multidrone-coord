@@ -21,8 +21,10 @@ from coordination_msgs.msg import AgentState, TargetDetected, BundleState
 from coordination_msgs.srv import DetectTarget
 
 from coordination_node.pso import ParticleSwarmSearch
-from coordination_node.cbba import CbbaAgent, Task
+from coordination_node.cbba import UNASSIGNED, CbbaAgent, Task
+from coordination_node.coverage import CoverageMap, path_clearance
 from coordination_node.navigate import step_toward
+from coordination_node.offboard_sequence import offboard_request
 from coordination_node.separation import (
     constrain_setpoint, enforce_min_separation)
 
@@ -42,6 +44,17 @@ SETPOINT_MIN_SEPARATION_M = MIN_SEPARATION_M + 0.3
 SETPOINT_AVOID_RADIUS_M = 2.5
 ARRIVAL_RADIUS_M = 0.3  # must match navigate.py's step_toward default
 
+# Search (see coverage.py). A search goal whose straight path passes within
+# SEARCH_PATH_CLEARANCE_M of a neighbor's path to its own goal loses
+# PATH_CONFLICT_PENALTY fitness, so two drones don't pick crossing goals
+# (dry run 2026-10-06, PX4 tracking modeled: runs dipping under 1.5m went
+# from 12/40 to 4/40 with it). SEARCH_CANDIDATES unexplored cells are
+# offered to PSO as possible new goals each tick.
+SEARCH_PATH_CLEARANCE_M = 2.5
+PATH_CONFLICT_PENALTY = 10.0
+SEARCH_CANDIDATES = 8
+SEARCH_LOG_EVERY_TICKS = 10  # 5s
+
 STATE_SEARCH = AgentState.STATE_SEARCH
 STATE_TASK_ALLOCATION = AgentState.STATE_TASK_ALLOCATION
 
@@ -52,12 +65,20 @@ OFFBOARD_HZ = 10.0
 # switching into OFFBOARD without recent valid setpoints already flowing.
 OFFBOARD_TICKS_BEFORE_MODE_SWITCH = 20
 OFFBOARD_TICKS_BEFORE_ARM = OFFBOARD_TICKS_BEFORE_MODE_SWITCH + 2
+# Re-send mode switch + ARM this often until VehicleStatus confirms both
+# (see offboard_sequence.py).
+OFFBOARD_RETRY_TICKS = int(3 * OFFBOARD_HZ)
 
 
 def make_coverage_fitness(area_center, area_radius):
     """Search-value function: rewards being far from your nearest known
     neighbor (spreading out to cover more ground), with a penalty for
     straying outside the shared operating area.
+
+    No longer used by CoordinationNode itself - replaced 2026-10-06 by the
+    coverage map (coverage.py), which also fixed drones parking at their
+    spawn point. Still used by the standalone single-drone
+    tools/px4_offboard_*_test.py scripts, where there are no neighbors.
 
     This replaces an earlier placeholder that rewarded distance from a
     drone's OWN starting point instead. That version had two real problems,
@@ -138,16 +159,21 @@ class CoordinationNode(Node):
         # initial_y:=gx here.
         self.declare_parameter('initial_x', 0.0)
         self.declare_parameter('initial_y', 0.0)
-        # Soft bound for make_coverage_fitness's search-area penalty (see
-        # its docstring) - a mission-level setting, not per-drone, so every
-        # drone in a fleet should normally be launched with the same
-        # values. Defaults are deliberately generic/small rather than tuned
+        # The search area (coverage.py) - a mission-level setting, not
+        # per-drone, so every drone in a fleet should normally be launched
+        # with the same values. Defaults are deliberately generic/small rather than tuned
         # to any one demo's coordinates (this node stays usable for any N
         # drones at any scale); override per deployment the same way
         # initial_x/initial_y already are.
         self.declare_parameter('area_center_x', 0.0)
         self.declare_parameter('area_center_y', 0.0)
         self.declare_parameter('area_radius', 10.0)
+        # How far around itself a drone counts as having searched, and how
+        # long until a searched cell is worth searching again. 1.5m / 60s
+        # keeps two drones busy over a 6m-radius area (dry run: 95% covered
+        # in ~15s, then continuous revisits) without parking.
+        self.declare_parameter('sensor_radius', 1.5)
+        self.declare_parameter('revisit_after_s', 60.0)
         self.declare_parameter('use_px4_position', False)
         self.declare_parameter('use_px4_offboard', False)
         self.declare_parameter('hold_altitude', 3.0)
@@ -177,10 +203,18 @@ class CoordinationNode(Node):
         area_radius = self.get_parameter('area_radius').value
 
         self.state = STATE_SEARCH
+        self.neighbor_best = {}  # drone_id -> ((x, y), fitness): its search goal
+        self.neighbor_position = {}  # drone_id -> (x, y)
+        self.coverage = CoverageMap(
+            area_center, area_radius,
+            sensor_radius=self.get_parameter('sensor_radius').value,
+            revisit_after_s=self.get_parameter('revisit_after_s').value)
+        self._own_xy = (init_x, init_y)  # where this drone is, for path checks
+        self._search_ticks = 0
         self.pso = ParticleSwarmSearch(
             drone_id=self.drone_id,
             initial_position=(init_x, init_y),
-            fitness_fn=make_coverage_fitness(area_center, area_radius),
+            fitness_fn=self._search_fitness,
         )
         self.cbba = CbbaAgent(drone_id=self.drone_id)
 
@@ -217,8 +251,6 @@ class CoordinationNode(Node):
         if self.use_px4_offboard:
             self._setup_px4_offboard_control()
 
-        self.neighbor_best = {}  # drone_id -> ((x, y), fitness)
-        self.neighbor_position = {}  # drone_id -> (x, y), for separation only
         self._next_task_id = self.drone_id * 100000  # cheap collision-free id space
 
         self.agent_state_pub = self.create_publisher(
@@ -314,7 +346,8 @@ class CoordinationNode(Node):
         computer talks to PX4 on actual hardware too.
         """
         try:
-            from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint
+            from px4_msgs.msg import (
+                OffboardControlMode, TrajectorySetpoint, VehicleStatus)
         except ImportError:
             self.get_logger().warning(
                 'use_px4_offboard:=true but px4_msgs is not present in '
@@ -351,6 +384,15 @@ class CoordinationNode(Node):
         self._trajectory_pub = self.create_publisher(
             TrajectorySetpoint, f'{px4_prefix}/fmu/in/trajectory_setpoint',
             qos_profile)
+        # PX4 suffixes a versioned message's topic with its version (same
+        # reason the position topic is vehicle_local_position_v1), so derive
+        # it from the vendored px4_msgs rather than hardcoding it.
+        version = getattr(VehicleStatus, 'MESSAGE_VERSION', 0)
+        status_topic = f'{px4_prefix}/fmu/out/vehicle_status' + (
+            f'_v{version}' if version else '')
+        self.create_subscription(
+            VehicleStatus, status_topic, self._on_px4_vehicle_status,
+            qos_profile)
 
         # Each PX4 SITL instance exposes its own 'Normal'-mode MAVLink UDP
         # link on local port 18570 + instance (confirmed from every
@@ -370,15 +412,28 @@ class CoordinationNode(Node):
         self._send_mavlink_heartbeat()
 
         self._offboard_setpoint_count = 0
-        self._px4_mode_requested = False
-        self._px4_armed = False
+        self._px4_status_seen = False
+        self._px4_flight_confirmed = False  # armed AND in OFFBOARD, per PX4
+        self._px4_request_attempts = 0
         self._landing_requested = False
         self._land_sent = False
         self.create_timer(1.0 / OFFBOARD_HZ, self._offboard_control_tick)
         self.get_logger().info(
             f'Real PX4 offboard control enabled for drone {self.drone_id}: '
             f'DDS setpoints on {px4_prefix or "(unprefixed)"}/fmu/in/..., '
-            f'MAVLink ARM/mode-switch on udp port {mavlink_port}.')
+            f'MAVLink ARM/mode-switch on udp port {mavlink_port}, '
+            f'confirmed via {status_topic}.')
+
+    def _on_px4_vehicle_status(self, msg):
+        self._px4_status_seen = True
+        if self._px4_flight_confirmed:
+            return
+        if (msg.arming_state == msg.ARMING_STATE_ARMED
+                and msg.nav_state == msg.NAVIGATION_STATE_OFFBOARD):
+            self._px4_flight_confirmed = True
+            self.get_logger().info(
+                f'Drone {self.drone_id}: PX4 confirms armed in OFFBOARD '
+                f'(attempt {self._px4_request_attempts}).')
 
     def _now_us(self):
         return int(self.get_clock().now().nanoseconds / 1000)
@@ -450,22 +505,28 @@ class CoordinationNode(Node):
         if self._offboard_setpoint_count % int(OFFBOARD_HZ) == 0:
             self._send_mavlink_heartbeat()
 
-        if (not self._px4_mode_requested
-                and self._offboard_setpoint_count
-                == OFFBOARD_TICKS_BEFORE_MODE_SWITCH):
+        request = offboard_request(
+            self._offboard_setpoint_count, self._px4_flight_confirmed,
+            first_tick=OFFBOARD_TICKS_BEFORE_MODE_SWITCH,
+            retry_ticks=OFFBOARD_RETRY_TICKS,
+            arm_delay=(OFFBOARD_TICKS_BEFORE_ARM
+                       - OFFBOARD_TICKS_BEFORE_MODE_SWITCH))
+        if request == 'mode':
+            self._px4_request_attempts += 1
             self._send_mavlink_command(
                 self._mavutil.mavlink.MAV_CMD_DO_SET_MODE,
                 param1=1, param2=PX4_CUSTOM_MAIN_MODE_OFFBOARD)
-            self._px4_mode_requested = True
+            note = '' if self._px4_status_seen else (
+                ' - no VehicleStatus from PX4 yet, check its DDS agent')
             self.get_logger().info(
-                f'Drone {self.drone_id}: requested OFFBOARD mode (MAVLink).')
-        elif (not self._px4_armed
-                and self._offboard_setpoint_count == OFFBOARD_TICKS_BEFORE_ARM):
+                f'Drone {self.drone_id}: requested OFFBOARD mode (MAVLink, '
+                f'attempt {self._px4_request_attempts}){note}.')
+        elif request == 'arm':
             self._send_mavlink_command(
                 self._mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM, param1=1)
-            self._px4_armed = True
             self.get_logger().info(
-                f'Drone {self.drone_id}: requested ARM (MAVLink).')
+                f'Drone {self.drone_id}: requested ARM (MAVLink, attempt '
+                f'{self._px4_request_attempts}).')
 
     # ---- PSO / neighbor tracking -------------------------------------------
 
@@ -474,10 +535,35 @@ class CoordinationNode(Node):
             (msg.best_position.x, msg.best_position.y), msg.best_fitness)
         self.neighbor_position[msg.drone_id] = (msg.position.x, msg.position.y)
 
+    def _now_s(self):
+        return self.get_clock().now().nanoseconds / 1e9
+
+    def _search_fitness(self, x, y, neighbor_positions):
+        """PSO fitness: unexplored ground a drone at (x, y) would see that no
+        other drone is at or heading to (coverage.py), minus a penalty if
+        getting there means crossing a neighbor's path to its own goal."""
+        goals = [goal for goal, _ in self.neighbor_best.values()]
+        value = self.coverage.fitness(
+            x, y, self._now_s(), claimed=list(neighbor_positions) + goals)
+        for drone_id, (goal, _) in self.neighbor_best.items():
+            start = self.neighbor_position.get(drone_id)
+            if start is not None and path_clearance(
+                    self._own_xy, (x, y), start, goal) < SEARCH_PATH_CLEARANCE_M:
+                value -= PATH_CONFLICT_PENALTY
+        return value
+
     def _swarm_best(self):
+        """Best goal across the swarm, re-scored with this drone's own
+        up-to-date map rather than trusting each neighbor's broadcast score
+        (computed against a different, older picture). In practice this
+        drone's own goal usually wins - a neighbor's goal is one it has
+        claimed - so the swarm cooperates through the shared coverage map
+        and claims rather than through PSO's social pull."""
+        neighbors = list(self.neighbor_position.values())
         best_pos = self.pso.state.best_position
-        best_fit = self.pso.state.best_fitness
-        for pos, fit in self.neighbor_best.values():
+        best_fit = self._search_fitness(*best_pos, neighbors)
+        for pos, _ in self.neighbor_best.values():
+            fit = self._search_fitness(*pos, neighbors)
             if fit > best_fit:
                 best_pos, best_fit = pos, fit
         return best_pos
@@ -550,10 +636,28 @@ class CoordinationNode(Node):
             target_type=msg.target_type,
             confidence=msg.confidence,
         )
+        before = dict(self.cbba.winning_agent)
         self.cbba.add_task(task)
+        self.get_logger().info(
+            f'Drone {self.drone_id}: target {task.task_id} at '
+            f'({task.position[0]:.1f}, {task.position[1]:.1f}) - my bid '
+            f'{self.cbba.bid_for(task, self.pso.state.position):.3f}.')
         self.cbba.build_bundle(self.pso.state.position)
+        self._log_winner_changes(before)
         self._sync_state_with_bundle()
         self._publish_bundle_state()
+
+    def _log_winner_changes(self, before):
+        """Say who holds each task whenever that changes - the only other
+        way to see CBBA working is echoing the bundle_state topics."""
+        for task_id, agent in self.cbba.winning_agent.items():
+            if agent == before.get(task_id) or agent == UNASSIGNED:
+                continue
+            bid = self.cbba.winning_bids.get(task_id, 0.0)
+            who = 'I win' if agent == self.drone_id else f'drone {agent} wins'
+            self.get_logger().info(
+                f'Drone {self.drone_id}: target {task_id} - {who} '
+                f'(bid {bid:.3f}).')
 
     def _publish_bundle_state(self):
         msg = BundleState()
@@ -576,6 +680,7 @@ class CoordinationNode(Node):
         # consensus. Fine while every drone hears every TargetDetected
         # directly (small fleet, good comms); revisit if we need this to
         # survive a drone joining late or missing that broadcast.
+        before = dict(self.cbba.winning_agent)
         changed = self.cbba.receive_bundle_state(
             sender_id=msg.drone_id,
             known_task_ids=list(msg.known_task_ids),
@@ -587,6 +692,7 @@ class CoordinationNode(Node):
             bundle_before = len(self.cbba.bundle)
             self.cbba.build_bundle(self.pso.state.position)
             changed = changed or len(self.cbba.bundle) > bundle_before
+        self._log_winner_changes(before)
         self._sync_state_with_bundle()
         # Only republish on an actual change — otherwise two drones would
         # keep re-broadcasting at each other forever even after consensus
@@ -597,11 +703,27 @@ class CoordinationNode(Node):
     # ---- main loop ----------------------------------------------------------
 
     def _tick(self):
+        now = self._now_s()
+        self._own_xy = (self._real_position if self._real_position is not None
+                        else self.pso.state.position)
+        # Every drone searches wherever it flies, task or not.
+        for x, y in [self._own_xy] + list(self.neighbor_position.values()):
+            self.coverage.mark_seen(x, y, now)
+
         if self.state == STATE_SEARCH:
             commanded_x, commanded_y = self.pso.step(
                 dt=0.5, swarm_best_position=self._swarm_best(),
                 neighbor_positions=list(self.neighbor_position.values()),
-                real_position=self._real_position)
+                real_position=self._real_position,
+                candidates=self.coverage.sample_unexplored(
+                    SEARCH_CANDIDATES, now))
+            self._search_ticks += 1
+            if self._search_ticks % SEARCH_LOG_EVERY_TICKS == 0:
+                (x, y), (gx, gy) = self._own_xy, self.pso.state.best_position
+                self.get_logger().info(
+                    f'Drone {self.drone_id} searching: at ({x:.1f}, {y:.1f}), '
+                    f'heading for ({gx:.1f}, {gy:.1f}), area explored '
+                    f'{self.coverage.explored_fraction(now):.0%}.')
             if self.use_px4_offboard:
                 self._commanded_xy = (commanded_x, commanded_y)
         elif self.state == STATE_TASK_ALLOCATION:
@@ -670,6 +792,10 @@ class CoordinationNode(Node):
             self.cbba.mark_task_done(task_id)
             self._sync_state_with_bundle()
             self._publish_bundle_state()
+            self.get_logger().info(
+                f'Drone {self.drone_id}: reached target {task_id} - '
+                + ('back to searching.' if self.state == STATE_SEARCH
+                   else 'on to the next one.'))
 
 
 def main(args=None):

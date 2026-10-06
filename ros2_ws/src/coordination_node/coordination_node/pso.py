@@ -11,6 +11,11 @@ from dataclasses import dataclass
 import math
 import random
 
+# See ParticleSwarmSearch._rescore_personal_best. Units are fitness points
+# (coverage.py: cells) and meters.
+CANDIDATE_DISTANCE_COST = 0.3
+CANDIDATE_SWITCH_MARGIN = 1.0
+
 
 @dataclass
 class PsoState:
@@ -91,8 +96,38 @@ class ParticleSwarmSearch:
             svy += (dy / distance) * push
         return svx, svy
 
+    def _rescore_personal_best(self, x, y, neighbor_positions, candidates):
+        """Re-score the personal best against the world as it is NOW, and
+        swap it for a better candidate if one is offered.
+
+        The fitness depends on things that change (where neighbors are,
+        what has been searched), so a score saved when a point was first
+        visited goes stale. Never re-scoring it made a drone's spawn point
+        its best forever, so the cognitive pull dragged it back there
+        (found 2026-10-06; see coverage.py). `candidates` are points this
+        drone hasn't been to but can score anyway (coverage fitness only
+        needs the map, not a visit) - without them PSO only knows places
+        it has already flown, and has nothing pulling it toward unsearched
+        ground. A candidate wins only by a clear margin, after a small
+        per-meter distance cost, so the goal doesn't flip-flop between
+        near-equal points every tick.
+        """
+        def utility(point, fitness):
+            return fitness - CANDIDATE_DISTANCE_COST * math.dist((x, y), point)
+
+        best = self.state.best_position
+        best_fitness = self.fitness_fn(*best, neighbor_positions)
+        best_utility = utility(best, best_fitness)
+        for point in candidates:
+            fitness = self.fitness_fn(*point, neighbor_positions)
+            if utility(point, fitness) > best_utility + CANDIDATE_SWITCH_MARGIN:
+                best, best_fitness = point, fitness
+                best_utility = utility(point, fitness)
+        self.state.best_position = best
+        self.state.best_fitness = best_fitness
+
     def step(self, dt, swarm_best_position, neighbor_positions=None,
-              real_position=None):
+             real_position=None, candidates=()):
         """Advance one PSO update using the best known swarm position.
 
         `neighbor_positions`, when given, is a list of other drones' current
@@ -114,6 +149,7 @@ class ParticleSwarmSearch:
         setpoint, not a readback of the position it already sent last tick.
         """
         x, y = real_position if real_position is not None else self.state.position
+        self._rescore_personal_best(x, y, neighbor_positions or [], candidates)
         vx, vy = self.state.velocity
         pbx, pby = self.state.best_position
         gbx, gby = swarm_best_position
