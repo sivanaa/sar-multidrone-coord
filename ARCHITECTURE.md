@@ -300,7 +300,11 @@ own "next report" scope:**
     floor at the 10Hz setpoint rate (`_publish_offboard_setpoint`), not
     just once per 0.5s tick. Dry run with 0.1s-step PX4 tracking: 14/40
     three-minute runs under 1.5m at 2Hz (worst 1.12m), **0/40 at 10Hz
-    (worst 1.61m)**. Pending live re-measurement with `sim.sh repeat`.
+    (worst 1.61m)**. **Confirmed live** (`sim.sh repeat 5`, same day):
+    closest 2.78 / 2.48 / 2.74 / **1.54** / 2.72m — all above the floor;
+    the 1.54m was a brief pass while both drones moved the same way, then
+    held at ~1.9m (the 1.8m setpoint floor). Every run: both drones armed
+    without help, both targets reached, search resumed.
   - **Logs**: each node now prints its search progress every 5s (`searching:
     at ..., heading for ..., area explored N%`), its bid for every new
     target, every change of winner, and `reached target N - back to
