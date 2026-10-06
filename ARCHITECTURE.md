@@ -40,6 +40,11 @@ One `coordination_node` runs per drone. Each instance is in exactly one of:
 - **TASK_ALLOCATION**: runs CBBA bundle construction against all known tasks,
   broadcasting belief via `BundleState`, and updates on every neighbor
   broadcast via the consensus rule.
+- **RETURNING** (added 2026-10-06): entered from either state once PX4's
+  battery reaches the 25% reserve (`cbba.BATTERY_RESERVE`). The drone
+  releases every task and withdraws its claims (so the others win them on
+  their next bundle build), flies to its spawn point and lands; the node
+  exits after commanding LAND. One-way — it never takes work again.
 
 ## Messages (`coordination_msgs`)
 
@@ -129,7 +134,27 @@ own "next report" scope:**
   cluster (0.630/0.614 vs 0.523/0.506), drone 1 the green one (0.727/0.674
   vs 0.324/0.359), both agreed, each flew its pair back to back (drone 0
   in the shorter order, target 2 then 1) and resumed searching; drones no
-  closer than 4.04m. Still not modeled: battery.
+  closer than 4.04m.
+
+  **Battery (added 2026-10-06).** Each node reads PX4's
+  `battery_status_v1` and multiplies its whole path value (so every bid)
+  by `battery_value_scale`: 1 at or above 50%, falling linearly to 0 at
+  the 25% reserve, where the drone switches to RETURNING (see the state
+  machine). Scaling the whole value keeps bids comparable across drones
+  and keeps CBBA's diminishing-marginal-gain property. 50% is the full
+  point partly because PX4 SITL's simulated battery holds at 50% by
+  default, so ordinary sim runs are unaffected. Live test:
+  `sim.sh test-battery` (drone 1 forced to 35%, then 20%, via PX4's
+  `SIM_BAT_MIN_PCT`).
+
+  **Consensus fix, same day.** The update rule took whichever report was
+  fresher; when both drones claimed a new target at about the same moment,
+  the later claim won even with the lower bid (found by a unit test). It
+  now follows the paper's decision rules by who each side thinks is
+  winning: when both claim a task, the higher bid wins (ties to the lower
+  drone id) regardless of timestamps. Allocation dry runs unchanged. Also:
+  a drone re-bids after finishing a target (room in its 3-task bundle), so
+  a 4th waiting target isn't left until some other update happens.
 - **PSO fitness function — replaced again 2026-10-06 by a coverage map**
   (`coverage.py`; see "Search: coverage map" below). The text in the rest of
   this bullet describes the previous version, `make_coverage_fitness`

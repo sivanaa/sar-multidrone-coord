@@ -72,3 +72,57 @@ def test_two_drones_split_a_cluster_and_agree():
     assert set(owners.values()) == {0, 1}         # not all to one drone
     for agent in agents:                          # and both drones agree
         assert all(agent.winning_agent[t] == owners[t] for t in owners)
+
+
+def test_battery_scales_bids_down_to_nothing_at_reserve():
+    from coordination_node.cbba import battery_value_scale
+    assert battery_value_scale(0.9) == battery_value_scale(0.5) == 1.0
+    assert 0.0 < battery_value_scale(0.4) < 1.0
+    assert battery_value_scale(0.25) == battery_value_scale(0.1) == 0.0
+
+
+def test_low_battery_drone_loses_a_target_it_is_closer_to():
+    target = _task(1, 3.0, 0.0)
+    agents = _consensus([(2.0, 0.0), (0.0, 0.0)], [target], rounds=1)
+    assert agents[0].bundle == [1]                  # healthy: closer wins
+    low = _agent(0, target)
+    low.value_scale = 0.3
+    healthy = _agent(1, target)
+    assert low.bid_for(target, (2.0, 0.0)) < healthy.bid_for(target, (0.0, 0.0))
+
+
+def test_drone_at_reserve_wins_nothing_even_unopposed():
+    target = _task(1, 1.0, 0.0)
+    agent = _agent(0, target)
+    agent.value_scale = 0.0
+    assert agent.build_bundle((0.0, 0.0)) == []
+
+
+def test_release_all_hands_every_task_to_the_other_drone():
+    tasks = [_task(1, 1.0, 0.0), _task(2, 2.0, 0.0)]
+    agents = _consensus([(0.0, 0.0), (8.0, 0.0)], tasks)
+    assert sorted(agents[0].bundle) == [1, 2]
+    released = agents[0].release_all()
+    assert sorted(released) == [1, 2] and agents[0].bundle == []
+    agents[0].value_scale = 0.0
+    state = (0, list(agents[0].tasks),
+             [agents[0].winning_bids[t] for t in agents[0].tasks],
+             [agents[0].winning_agent[t] for t in agents[0].tasks],
+             [agents[0].update_time[t] for t in agents[0].tasks])
+    agents[1].receive_bundle_state(*state)
+    agents[1].build_bundle((8.0, 0.0))
+    assert sorted(agents[1].bundle) == [1, 2]
+
+
+def test_simultaneous_claims_go_to_the_higher_bid_not_the_later_one():
+    target = _task(1, 3.0, 0.0)
+    near, far = _agent(0, target), _agent(1, target)
+    near.build_bundle((2.0, 0.0))
+    far.build_bundle((0.0, 0.0))   # claims a moment later, with a lower bid
+    assert far.update_time[1] >= near.update_time[1]
+    near_state = (0, [1], [near.winning_bids[1]], [0], [near.update_time[1]])
+    far_state = (1, [1], [far.winning_bids[1]], [1], [far.update_time[1]])
+    near.receive_bundle_state(*far_state)
+    far.receive_bundle_state(*near_state)
+    assert near.bundle == [1] and far.bundle == []
+    assert near.winning_agent[1] == far.winning_agent[1] == 0

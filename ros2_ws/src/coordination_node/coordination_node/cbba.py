@@ -32,6 +32,21 @@ UNASSIGNED = 255  # sentinel drone_id meaning "no winner yet"
 # at NOMINAL_SPEED_MPS, roughly the vehicles' average in Gazebo runs.
 DISCOUNT = 0.9
 NOMINAL_SPEED_MPS = 2.0
+# Battery (fraction 0-1): full-strength bids at or above BATTERY_FULL,
+# scaled down linearly below it, nothing at or below BATTERY_RESERVE - the
+# level at which a drone hands off its tasks and goes home (see
+# coordination_node.py). BATTERY_FULL is 50% partly because PX4 SITL's
+# simulated battery holds at 50% by default (SIM_BAT_MIN_PCT), so ordinary
+# sim runs are unaffected.
+BATTERY_FULL = 0.5
+BATTERY_RESERVE = 0.25
+
+
+def battery_value_scale(remaining):
+    """How much of a task's value a drone with `remaining` battery can
+    count on delivering: 1 when healthy, 0 at the reserve."""
+    span = BATTERY_FULL - BATTERY_RESERVE
+    return max(0.0, min(1.0, (remaining - BATTERY_RESERVE) / span))
 
 
 @dataclass
@@ -58,6 +73,11 @@ class CbbaAgent:
         self.winning_bids = {}   # task_id -> float
         self.winning_agent = {}  # task_id -> drone_id
         self.update_time = {}    # task_id -> seconds
+        # Multiplies every path value, so every bid (set from battery by
+        # the node, see battery_value_scale). Scaling the whole value keeps
+        # bids comparable across drones and keeps CBBA's diminishing-
+        # marginal-gain property that its convergence relies on.
+        self.value_scale = 1.0
 
     def add_task(self, task: Task):
         """Register a newly detected target as an available task."""
@@ -75,7 +95,7 @@ class CbbaAgent:
             elapsed += math.dist(here, task.position) / NOMINAL_SPEED_MPS
             value += task.confidence * DISCOUNT ** elapsed
             here = task.position
-        return value
+        return self.value_scale * value
 
     def _best_insertion(self, task, current_position):
         """(marginal value, index) of adding `task` to the path at the
@@ -91,11 +111,8 @@ class CbbaAgent:
 
     def bid_for(self, task: Task, current_position):
         """What this drone bids for `task` right now: the value it adds to
-        the drone's current path (see module docstring).
-
-        TODO: fold in remaining battery once there is real telemetry for it
-        (see report, section on bid function design).
-        """
+        the drone's current path (see module docstring), scaled by battery
+        (`value_scale`)."""
         if task.task_id in self.path:
             return self.winning_bids.get(task.task_id, 0.0)
         return self._best_insertion(task, current_position)[0]
@@ -147,55 +164,94 @@ class CbbaAgent:
             return bid > winning_bid
         return self.drone_id < self.winning_agent.get(task_id, UNASSIGNED)
 
-    def _release_from(self, index):
+    def _release_from(self, index, outbid=True):
         """CBBA's release rule: drop bundle[index:] (the bid for each later
-        task was computed assuming the earlier ones). The outbid task itself
-        already carries the new winner; for the rest, withdraw our claim so
-        other drones can bid on them - keeping it was what left targets with
-        no drone at all."""
+        task was computed assuming the earlier ones). When `outbid`, the
+        task at `index` already carries its new winner; for the rest,
+        withdraw our claim so other drones can bid on them - keeping it was
+        what left targets with no drone at all."""
         released = self.bundle[index:]
         self.bundle = self.bundle[:index]
         self.path = [t for t in self.path if t in self.bundle]
         now = time.time()
-        for task_id in released[1:]:
+        for task_id in released[1:] if outbid else released:
             if self.winning_agent.get(task_id) == self.drone_id:
                 self.winning_bids[task_id] = 0.0
                 self.winning_agent[task_id] = UNASSIGNED
                 self.update_time[task_id] = now
 
+    def release_all(self):
+        """Give up every task and withdraw the claims, so the other drones
+        win them on their next bundle build. Returns the released ids."""
+        released = list(self.bundle)
+        self._release_from(0, outbid=False)
+        return released
+
+    def _higher(self, bid_a, agent_a, bid_b, agent_b):
+        """Whether (bid_a, agent_a) beats (bid_b, agent_b): higher bid,
+        exact ties to the lower drone id - the same order every drone
+        uses, so they can't disagree about a tie."""
+        return bid_a > bid_b or (bid_a == bid_b and agent_a < agent_b)
+
     def receive_bundle_state(self, sender_id, known_task_ids, winning_bids,
                              winning_agents, update_times):
-        """Consensus update against one neighbor's broadcast.
+        """Consensus update against one neighbor's broadcast, following the
+        paper's decision rules (Table 1) by who each side thinks is winning.
 
-        Simplified version of the full action table in the paper (Table 1):
-        a neighbor's information about a task wins if it is fresher AND
-        (its bid is higher than ours, or someone other than us now holds it).
-        TODO: implement the complete action table once we're validating
-        against real multi-drone runs — this covers the common cases but not
-        every consensus edge case from the paper.
+        The first version simply took whichever information was fresher
+        (if it outbid ours or named someone else). When both drones claimed
+        a new target at about the same moment, the *later* claim won even
+        with the *lower* bid - found by a unit test 2026-10-06. When both
+        claim it, the higher bid wins now, whatever the timestamps.
+        Timestamps only decide between two reports about a third drone.
 
         Returns True if this update changed any local belief, so the caller
         can decide whether it's worth re-broadcasting.
         """
         changed = False
+        me, sender = self.drone_id, sender_id
         for task_id, their_bid, their_agent, their_time in zip(
                 known_task_ids, winning_bids, winning_agents, update_times):
-            our_time = self.update_time.get(task_id, 0.0)
             our_bid = self.winning_bids.get(task_id, 0.0)
             our_agent = self.winning_agent.get(task_id, UNASSIGNED)
-
+            our_time = self.update_time.get(task_id, 0.0)
             fresher = their_time > our_time
-            better = their_bid > our_bid
 
-            if fresher and (better or their_agent != self.drone_id):
-                if their_bid != our_bid or their_agent != our_agent:
-                    changed = True
-                self.winning_bids[task_id] = their_bid
-                self.winning_agent[task_id] = their_agent
-                self.update_time[task_id] = their_time
-                if task_id in self.bundle and their_agent != self.drone_id:
-                    # We've been outbid — release it and everything added
-                    # after it (CBBA's bundle "release" rule).
-                    self._release_from(self.bundle.index(task_id))
-                    changed = True
+            if their_agent == sender:      # sender claims it
+                if our_agent == me:          # both claim it: higher bid wins
+                    take = self._higher(their_bid, sender, our_bid, me)
+                elif our_agent in (sender, UNASSIGNED):
+                    take = True
+                else:                        # we think a third drone has it
+                    take = fresher or self._higher(
+                        their_bid, sender, our_bid, our_agent)
+                action = 'update' if take else 'leave'
+            elif their_agent == me:        # sender thinks we have it
+                action = 'reset' if our_agent == sender else 'leave'
+            elif their_agent == UNASSIGNED:  # sender thinks nobody has it
+                action = ('update' if our_agent == sender
+                          or (our_agent not in (me, UNASSIGNED) and fresher)
+                          else 'leave')
+            else:                          # sender says a third drone has it
+                action = ('update' if our_agent in (sender, UNASSIGNED)
+                          or (our_agent == their_agent and fresher)
+                          or (our_agent == me and self._higher(
+                              their_bid, their_agent, our_bid, me))
+                          or (our_agent not in (me, their_agent) and fresher)
+                          else 'leave')
+
+            if action == 'leave':
+                continue
+            if action == 'reset':
+                their_bid, their_agent, their_time = 0.0, UNASSIGNED, time.time()
+            if their_bid != our_bid or their_agent != our_agent:
+                changed = True
+            self.winning_bids[task_id] = their_bid
+            self.winning_agent[task_id] = their_agent
+            self.update_time[task_id] = max(their_time, our_time)
+            if task_id in self.bundle and their_agent != me:
+                # We've been outbid — release it and everything added
+                # after it (CBBA's bundle "release" rule).
+                self._release_from(self.bundle.index(task_id))
+                changed = True
         return changed

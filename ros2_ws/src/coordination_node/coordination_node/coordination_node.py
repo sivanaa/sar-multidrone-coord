@@ -21,7 +21,8 @@ from coordination_msgs.msg import AgentState, TargetDetected, BundleState
 from coordination_msgs.srv import DetectTarget
 
 from coordination_node.pso import ParticleSwarmSearch
-from coordination_node.cbba import UNASSIGNED, CbbaAgent, Task
+from coordination_node.cbba import (
+    BATTERY_RESERVE, UNASSIGNED, CbbaAgent, Task, battery_value_scale)
 from coordination_node.coverage import CoverageMap, path_clearance
 from coordination_node.navigate import step_toward
 from coordination_node.offboard_sequence import offboard_request
@@ -57,6 +58,7 @@ SEARCH_LOG_EVERY_TICKS = 10  # 5s
 
 STATE_SEARCH = AgentState.STATE_SEARCH
 STATE_TASK_ALLOCATION = AgentState.STATE_TASK_ALLOCATION
+STATE_RETURNING = AgentState.STATE_RETURNING
 
 # Real PX4 offboard control constants (see _setup_px4_offboard_control).
 PX4_CUSTOM_MAIN_MODE_OFFBOARD = 6
@@ -210,6 +212,8 @@ class CoordinationNode(Node):
             sensor_radius=self.get_parameter('sensor_radius').value,
             revisit_after_s=self.get_parameter('revisit_after_s').value)
         self._own_xy = (init_x, init_y)  # where this drone is, for path checks
+        self._home = (init_x, init_y)  # where it goes to land on low battery
+        self._battery_remaining = None  # 0-1 from PX4; None = unknown/no PX4
         self._search_ticks = 0
         self.pso = ParticleSwarmSearch(
             drone_id=self.drone_id,
@@ -298,7 +302,7 @@ class CoordinationNode(Node):
         telemetry.
         """
         try:
-            from px4_msgs.msg import VehicleLocalPosition
+            from px4_msgs.msg import BatteryStatus, VehicleLocalPosition
         except ImportError:
             self.get_logger().warning(
                 'use_px4_position:=true but px4_msgs is not present in '
@@ -319,10 +323,21 @@ class CoordinationNode(Node):
         topic = self.get_parameter('px4_local_position_topic').value
         self.create_subscription(
             VehicleLocalPosition, topic, self._on_px4_local_position, qos_profile)
+        # Versioned topic name derived the same way as vehicle_status's.
+        px4_prefix = '' if self.drone_id == 0 else f'/px4_{self.drone_id}'
+        version = getattr(BatteryStatus, 'MESSAGE_VERSION', 0)
+        self.create_subscription(
+            BatteryStatus, f'{px4_prefix}/fmu/out/battery_status'
+            + (f'_v{version}' if version else ''),
+            self._on_px4_battery, qos_profile)
 
     def _on_px4_local_position(self, msg):
         origin_x, origin_y = self._px4_frame_origin
         self._real_position = (msg.x + origin_x, msg.y + origin_y)
+
+    def _on_px4_battery(self, msg):
+        if msg.connected and msg.remaining >= 0.0:
+            self._battery_remaining = msg.remaining
 
     # ---- PX4 real offboard control (optional) ------------------------------
 
@@ -494,9 +509,12 @@ class CoordinationNode(Node):
         self._trajectory_pub.publish(setpoint)
 
     def request_landing(self):
-        """Called on SIGINT/SIGTERM (see main()). Land via MAVLink, same as
+        """Called on SIGINT/SIGTERM (see main()), and on reaching home at
+        battery reserve (_return_home). Land via MAVLink, same as
         ARM/mode-switch - never just stop publishing and leave a real
-        vehicle hanging mid-air."""
+        vehicle hanging mid-air. The node exits once LAND is sent; its last
+        broadcast position (where it lands) stays in neighbors' maps, so
+        their collision floor keeps avoiding that spot."""
         self._landing_requested = True
 
     def _offboard_control_tick(self):
@@ -644,6 +662,8 @@ class CoordinationNode(Node):
         given an empty-or-not bundle, the bundle just never became empty on
         the "won" path before.
         """
+        if self.state == STATE_RETURNING:
+            return  # one-way: a drone at battery reserve never takes work again
         self.state = STATE_TASK_ALLOCATION if self.cbba.bundle else STATE_SEARCH
 
     def _on_target_detected(self, msg: TargetDetected):
@@ -728,6 +748,7 @@ class CoordinationNode(Node):
         # Every drone searches wherever it flies, task or not.
         for x, y in [self._own_xy] + list(self.neighbor_position.values()):
             self.coverage.mark_seen(x, y, now)
+        self._check_battery()
 
         if self.state == STATE_SEARCH:
             commanded_x, commanded_y = self.pso.step(
@@ -742,13 +763,54 @@ class CoordinationNode(Node):
                 self.get_logger().info(
                     f'Drone {self.drone_id} searching: at ({x:.1f}, {y:.1f}), '
                     f'heading for ({gx:.1f}, {gy:.1f}), area explored '
-                    f'{self.coverage.explored_fraction(now):.0%}.')
+                    f'{self.coverage.explored_fraction(now):.0%}'
+                    + ('' if self._battery_remaining is None else
+                       f', battery {self._battery_remaining:.0%}') + '.')
             if self.use_px4_offboard:
                 self._commanded_xy = (commanded_x, commanded_y)
         elif self.state == STATE_TASK_ALLOCATION:
             self._navigate_to_current_task(dt=0.5)
+        elif self.state == STATE_RETURNING:
+            self._return_home(dt=0.5)
         self._enforce_collision_safety()
         self._publish_agent_state()
+
+    def _check_battery(self):
+        """Scale this drone's bids by battery (cbba.battery_value_scale),
+        and at the reserve hand every task to the swarm and go home - a
+        drone running low should give its work away while it can still
+        say so, not fail halfway through it."""
+        if self._battery_remaining is None:
+            return
+        self.cbba.value_scale = battery_value_scale(self._battery_remaining)
+        if (self.state == STATE_RETURNING
+                or self._battery_remaining > BATTERY_RESERVE):
+            return
+        released = self.cbba.release_all()
+        self.state = STATE_RETURNING
+        self.pso.state.best_position = self._home  # neighbors see where it's going
+        self._publish_bundle_state()
+        self.get_logger().warning(
+            f'Drone {self.drone_id}: battery {self._battery_remaining:.0%} - '
+            f'at reserve, handing off targets {released or "(none)"} and '
+            f'returning home to land.')
+
+    def _return_home(self, dt):
+        tracked_x, tracked_y, commanded_x, commanded_y = step_toward(
+            self.pso.state.position, self._home, dt,
+            max_speed=self.pso.max_speed, arrival_radius=ARRIVAL_RADIUS_M,
+            real_position=self._real_position,
+            neighbor_positions=list(self.neighbor_position.values()),
+            min_separation=(SETPOINT_AVOID_RADIUS_M if self.use_px4_offboard
+                            else MIN_SEPARATION_M))
+        self.pso.state.position = (tracked_x, tracked_y)
+        if self.use_px4_offboard:
+            self._commanded_xy = (commanded_x, commanded_y)
+            if (math.dist(self.pso.state.position, self._home)
+                    <= ARRIVAL_RADIUS_M and not self._landing_requested):
+                self.get_logger().info(
+                    f'Drone {self.drone_id}: home - landing.')
+                self.request_landing()
 
     def _enforce_collision_safety(self):
         """Hard floor, applied after every tick regardless of what produced
@@ -809,6 +871,11 @@ class CoordinationNode(Node):
         dy = task.position[1] - self.pso.state.position[1]
         if math.hypot(dx, dy) <= ARRIVAL_RADIUS_M:
             self.cbba.mark_task_done(task_id)
+            # Room in the bundle again: bid for anything still waiting
+            # (e.g. a 4th target when the bundle holds at most 3).
+            before = dict(self.cbba.winning_agent)
+            self.cbba.build_bundle(self.pso.state.position)
+            self._log_winner_changes(before)
             self._sync_state_with_bundle()
             self._publish_bundle_state()
             self.get_logger().info(

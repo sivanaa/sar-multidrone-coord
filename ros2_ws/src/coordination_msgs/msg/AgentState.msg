@@ -3,6 +3,7 @@
 
 uint8 STATE_SEARCH=0
 uint8 STATE_TASK_ALLOCATION=1
+uint8 STATE_RETURNING=2   # battery at reserve: tasks handed off, flying home to land
 
 uint8 drone_id
 builtin_interfaces/Time stamp
