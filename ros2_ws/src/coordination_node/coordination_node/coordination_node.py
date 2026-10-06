@@ -469,10 +469,23 @@ class CoordinationNode(Node):
         heartbeat.position = True
         self._offboard_mode_pub.publish(heartbeat)
 
+        # The collision floor again, at the full 10Hz setpoint rate against
+        # the freshest neighbor positions (also broadcast at 10Hz, see
+        # _offboard_control_tick) - not just once per 0.5s _tick. With
+        # positions up to 0.5s stale, two drones closing at ~3 m/s met at
+        # 0.92m in a live coverage-search run (2026-10-06); a dry run of the
+        # same search put 14/40 runs under 1.5m at 2Hz, 0/40 at 10Hz.
+        commanded = self._commanded_xy
+        if self._real_position is not None:
+            commanded = constrain_setpoint(
+                commanded, self._real_position,
+                list(self.neighbor_position.values()),
+                SETPOINT_MIN_SEPARATION_M)
+
         # Shared frame -> this vehicle's own PX4 local frame.
         origin_x, origin_y = self._px4_frame_origin
-        x = self._commanded_xy[0] - origin_x
-        y = self._commanded_xy[1] - origin_y
+        x = commanded[0] - origin_x
+        y = commanded[1] - origin_y
         setpoint = self._TrajectorySetpoint()
         setpoint.timestamp = self._now_us()
         # NED frame: down is positive, so climbing is a NEGATIVE z.
@@ -501,6 +514,7 @@ class CoordinationNode(Node):
         # it's also what it needs already flowing before it accepts the
         # mode-switch request below.
         self._publish_offboard_setpoint()
+        self._publish_agent_state()  # 10Hz position for neighbors' floors
         self._offboard_setpoint_count += 1
         if self._offboard_setpoint_count % int(OFFBOARD_HZ) == 0:
             self._send_mavlink_heartbeat()
@@ -572,8 +586,11 @@ class CoordinationNode(Node):
         msg = AgentState()
         msg.drone_id = self.drone_id
         msg.stamp = self.get_clock().now().to_msg()
-        msg.position = Point(
-            x=self.pso.state.position[0], y=self.pso.state.position[1], z=0.0)
+        # Real telemetry when there is some - pso.state.position only
+        # catches up with it once per 0.5s _tick.
+        x, y = (self._real_position if self._real_position is not None
+                else self.pso.state.position)
+        msg.position = Point(x=x, y=y, z=0.0)
         msg.best_position = Point(
             x=self.pso.state.best_position[0],
             y=self.pso.state.best_position[1], z=0.0)

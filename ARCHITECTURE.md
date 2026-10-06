@@ -288,6 +288,19 @@ own "next report" scope:**
     Fully simulated mode (no PX4) is worse — no tracking lag to absorb the
     staleness; worst 0.2–0.7m — so treat its separation numbers as
     meaningless for this search. Measure live with `drone_distance.sh`.
+  - **Live, 2026-10-06 (`sim.sh repeat 3`)**: search and bidding worked in
+    all 3 runs (closer drone won every target, both drones agreed, winner
+    reached it and resumed searching). Closest distances 2.44m and 3.06m —
+    and **0.92m** in the first run: ~2.5 min in, both drones picked goals
+    next to each other within the same few seconds (each scored against
+    the other's *previous* goal, so the path check didn't see it), and
+    the setpoint floor, working from neighbor positions up to 0.5s old,
+    couldn't stop ~3 m/s of closing speed in time. **Fixed the same day**:
+    each node now broadcasts its real position and re-applies the setpoint
+    floor at the 10Hz setpoint rate (`_publish_offboard_setpoint`), not
+    just once per 0.5s tick. Dry run with 0.1s-step PX4 tracking: 14/40
+    three-minute runs under 1.5m at 2Hz (worst 1.12m), **0/40 at 10Hz
+    (worst 1.61m)**. Pending live re-measurement with `sim.sh repeat`.
   - **Logs**: each node now prints its search progress every 5s (`searching:
     at ..., heading for ..., area explored N%`), its bid for every new
     target, every change of winner, and `reached target N - back to

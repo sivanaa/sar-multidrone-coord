@@ -56,8 +56,9 @@ save_run() {  # every window's full scrollback -> ~/sim_runs/<time>_<test>/
   name=$(tmux show-environment -t "$SESSION" RUN_NAME 2>/dev/null | cut -d= -f2)
   dir="$RUNS/$(date +%F_%H%M%S)_${name:-manual}"
   mkdir -p "$dir"
+  # -J re-joins lines tmux wrapped to fit a narrow attached terminal
   for w in $(tmux list-windows -t "$SESSION" -F '#W'); do
-    tmux capture-pane -p -t "$SESSION:$w" -S - > "$dir/$w.log"
+    tmux capture-pane -p -J -t "$SESSION:$w" -S - > "$dir/$w.log"
   done
   closest=$(grep -o 'closest [0-9.]* m' "$dir/dist.log" 2>/dev/null | tail -1)
   echo "$(basename "$dir")  ${closest:-no distance recorded}" >> "$RUNS/summary.txt"
@@ -178,7 +179,8 @@ test_search() {
 
 repeat_search() {  # repeat_search N SECONDS - for measuring separation
   local n=${1:-3} secs=${2:-120} i before
-  before=$(wc -l < "$RUNS/summary.txt" 2>/dev/null || echo 0)
+  mkdir -p "$RUNS" && touch "$RUNS/summary.txt"
+  before=$(wc -l < "$RUNS/summary.txt")
   for ((i = 1; i <= n; i++)); do
     say "=== run $i of $n ==="
     test_search --headless || say "run $i failed to start - its logs are saved too."
