@@ -227,7 +227,6 @@ test_battery() {
 test_handoff() {
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-handoff
-  tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_DRAIN 20" Enter
   node 0 0.0 0.0
   node 1 5.0 5.0
   distance_window
@@ -241,6 +240,9 @@ test_handoff() {
   # ...then runs low on the way to them.
   say "drone 1 battery -> 20% mid-flight: it should hand its targets to drone 0,"
   say "fly home to (5, 5) and land; drone 0 should end up doing all 4."
+  # Fast drain only now: fast-draining from takeoff made PX4's battery
+  # estimate undershoot its 50% hold, so drone 1 hit reserve too early.
+  tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_DRAIN 10" Enter
   tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_MIN_PCT 20" Enter
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
 }

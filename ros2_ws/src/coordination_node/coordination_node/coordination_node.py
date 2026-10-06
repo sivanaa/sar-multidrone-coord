@@ -432,6 +432,7 @@ class CoordinationNode(Node):
         self._px4_request_attempts = 0
         self._landing_requested = False
         self._land_sent = False
+        self._exit_after_landing = True
         self.create_timer(1.0 / OFFBOARD_HZ, self._offboard_control_tick)
         self.get_logger().info(
             f'Real PX4 offboard control enabled for drone {self.drone_id}: '
@@ -508,14 +509,19 @@ class CoordinationNode(Node):
         setpoint.yaw = 0.0
         self._trajectory_pub.publish(setpoint)
 
-    def request_landing(self):
+    def request_landing(self, stay_up=False):
         """Called on SIGINT/SIGTERM (see main()), and on reaching home at
-        battery reserve (_return_home). Land via MAVLink, same as
-        ARM/mode-switch - never just stop publishing and leave a real
-        vehicle hanging mid-air. The node exits once LAND is sent; its last
-        broadcast position (where it lands) stays in neighbors' maps, so
-        their collision floor keeps avoiding that spot."""
+        battery reserve (_return_home, with `stay_up`). Land via MAVLink,
+        same as ARM/mode-switch - never just stop publishing and leave a
+        real vehicle hanging mid-air. The node exits once LAND is sent
+        unless `stay_up`: a drone that lands on low battery keeps
+        broadcasting where it really is. When it exited at once, its last
+        broadcast was the in-flight point where LAND was sent, ~0.3m from
+        where PX4 actually set it down, and the other drone's floor steered
+        around the wrong spot - 1.42m on the meter (2026-10-06, harmless,
+        3m above a landed drone, but the floor should hold)."""
         self._landing_requested = True
+        self._exit_after_landing = not stay_up
 
     def _offboard_control_tick(self):
         if self._landing_requested:
@@ -525,6 +531,7 @@ class CoordinationNode(Node):
                 self._land_sent = True
                 self.get_logger().info(
                     f'Drone {self.drone_id}: landing commanded (MAVLink).')
+            self._publish_agent_state()  # keep neighbors' floors accurate
             return
 
         # Must keep streaming every tick regardless of arm state - this is
@@ -810,7 +817,7 @@ class CoordinationNode(Node):
                     <= ARRIVAL_RADIUS_M and not self._landing_requested):
                 self.get_logger().info(
                     f'Drone {self.drone_id}: home - landing.')
-                self.request_landing()
+                self.request_landing(stay_up=True)
 
     def _enforce_collision_safety(self):
         """Hard floor, applied after every tick regardless of what produced
@@ -912,7 +919,7 @@ def main(args=None):
     try:
         while rclpy.ok():
             rclpy.spin_once(node, timeout_sec=0.5)
-            if node._land_sent:
+            if node._land_sent and node._exit_after_landing:
                 break
     finally:
         node.destroy_node()
