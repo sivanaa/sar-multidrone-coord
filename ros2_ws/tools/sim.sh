@@ -110,6 +110,12 @@ up() {
   for n in 0 1; do
     tmux send-keys -t "$SESSION:px4_$n" "param set NAV_DLL_ACT 0" Enter
     tmux send-keys -t "$SESSION:px4_$n" "sensor_baro_sim start" Enter
+    # PX4 SITL saves every `param set` to its parameters.bson and loads it
+    # on the next launch, so the battery tests' settings would leak into
+    # later runs (drone 1 booted draining to 20% and hit reserve before
+    # any targets existed, 2026-10-06). Back to the defaults every launch.
+    tmux send-keys -t "$SESSION:px4_$n" "param set SIM_BAT_DRAIN 60" Enter
+    tmux send-keys -t "$SESSION:px4_$n" "param set SIM_BAT_MIN_PCT 50" Enter
   done
   for n in 0 1; do
     wait_for "px4_$n" 'Ready for takeoff' 60 \

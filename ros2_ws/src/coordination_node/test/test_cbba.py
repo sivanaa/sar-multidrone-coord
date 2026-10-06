@@ -126,3 +126,14 @@ def test_simultaneous_claims_go_to_the_higher_bid_not_the_later_one():
     far.receive_bundle_state(*near_state)
     assert near.bundle == [1] and far.bundle == []
     assert near.winning_agent[1] == far.winning_agent[1] == 0
+
+
+def test_a_target_another_drone_finished_is_never_held_or_won_again():
+    target = _task(1, 1.0, 0.0)
+    holder = _agent(1, target)
+    holder.build_bundle((0.0, 0.0))
+    assert holder.bundle == [1]
+    assert holder.learn_completed([1]) == [1]       # drone 0 got there first
+    assert holder.bundle == [] and holder.path == []
+    assert holder.build_bundle((0.0, 0.0)) == []
+    assert holder.learn_completed([1]) == []        # not news twice

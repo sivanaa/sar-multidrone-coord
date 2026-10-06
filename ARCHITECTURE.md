@@ -153,17 +153,28 @@ own "next report" scope:**
   to land", landed at its spawn, PX4 "Disarmed by landing"; drones no
   closer than 2.11m. It held no targets at that point, so the hand-off
   itself is exercised by `sim.sh test-handoff` (targets won at full
-  battery, then reserve mid-flight). Its first run found two things: (1)
-  fast-draining drone 1 from takeoff (`SIM_BAT_DRAIN 20`) made PX4's
-  battery estimate undershoot its 50% hold (85 → 65 → 40 → 25% in flight,
-  while drone 0 on the default drain sat at exactly 50%), so drone 1 hit
-  reserve before any targets existed — the test now switches to fast
-  drain only at the drop; (2) the 2D distance meter read 1.42m as drone 0
+  battery, then reserve mid-flight). Its first two runs found: (1) drone 1
+  hit reserve before any targets existed (85 → 65 → 40 → 25% in flight,
+  while drone 0 sat at exactly 50%). First blamed on PX4's battery
+  estimate undershooting under fast drain — **wrong**: PX4 SITL saves
+  every `param set` to its instance's `parameters.bson` and loads it on
+  the next launch (`importing from 'fs/parameters.bson'` in the boot log;
+  `param show` marks them `+`), so the previous test's `SIM_BAT_MIN_PCT
+  20` was still set. `sim.sh up` now resets `SIM_BAT_DRAIN`/`MIN_PCT` to
+  60/50 on every launch. (The "runtime-only" note on `NAV_DLL_ACT` below
+  is probably wrong for the same reason; harmless, since it's set every
+  launch anyway.) (2) The 2D distance meter read 1.42m as drone 0
   passed 3m *above* the landed drone 1: its node had exited the moment it
   sent LAND, so its last broadcast was the in-flight point ~0.3m from
   where PX4 actually set it down. A drone landing on low battery now
   keeps its node running and keeps broadcasting its real position (Ctrl+C
-  / `sim.sh down` still exit as before).
+  / `sim.sh down` still exit as before). (3) Once landed and disarmed,
+  PX4 SITL refilled drone 1's battery to 100%, its bids came back, and
+  the grounded drone won targets 3 and 4 — a RETURNING drone now bids
+  zero for good. (4) Drone 1 then also kept target 4 after drone 0 had
+  already reached it: completions were never shared. `BundleState` now
+  carries `completed_task_ids`, and a drone that hears one drops that
+  target for good (`cbba.learn_completed`).
 
   **Consensus fix, same day.** The update rule took whichever report was
   fresher; when both drones claimed a new target at about the same moment,

@@ -133,6 +133,16 @@ class CbbaAgent:
         self.bundle = [t for t in self.bundle if t != task_id]
         self.path = [t for t in self.path if t != task_id]
 
+    def learn_completed(self, task_ids):
+        """Another drone reports these tasks finished: drop them for good,
+        same as finishing them ourselves. Before completions were shared
+        (2026-10-06), a drone could keep - or later win - a target another
+        drone had already reached. Returns the ids that were news."""
+        news = [t for t in task_ids if t not in self.completed_task_ids]
+        for task_id in news:
+            self.mark_task_done(task_id)
+        return news
+
     def build_bundle(self, current_position):
         """Greedy bundle construction: repeatedly add the task with the
         highest marginal bid this drone can currently win, until the bundle

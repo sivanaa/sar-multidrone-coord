@@ -11,3 +11,4 @@ uint8[] winning_agent_ids    # index-aligned; drone_id of current believed winne
 float64[] update_times       # index-aligned; seconds, last time this drone updated its belief
 
 uint32[] bundle              # this drone's own committed tasks, in insertion order
+uint32[] completed_task_ids  # tasks this drone knows are finished (by anyone) - never bid on again

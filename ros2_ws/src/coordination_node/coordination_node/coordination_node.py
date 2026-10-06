@@ -715,6 +715,7 @@ class CoordinationNode(Node):
         msg.update_times = [
             self.cbba.update_time[t] for t in msg.known_task_ids]
         msg.bundle = list(self.cbba.bundle)
+        msg.completed_task_ids = sorted(self.cbba.completed_task_ids)
         self.bundle_pub.publish(msg)
 
     def _on_bundle_state(self, msg: BundleState):
@@ -725,7 +726,12 @@ class CoordinationNode(Node):
         # directly (small fleet, good comms); revisit if we need this to
         # survive a drone joining late or missing that broadcast.
         before = dict(self.cbba.winning_agent)
-        changed = self.cbba.receive_bundle_state(
+        done = self.cbba.learn_completed(list(msg.completed_task_ids))
+        if done:
+            self.get_logger().info(
+                f'Drone {self.drone_id}: drone {msg.drone_id} finished '
+                f'target(s) {done}.')
+        changed = bool(done) | self.cbba.receive_bundle_state(
             sender_id=msg.drone_id,
             known_task_ids=list(msg.known_task_ids),
             winning_bids=list(msg.winning_bids),
@@ -787,14 +793,21 @@ class CoordinationNode(Node):
         and at the reserve hand every task to the swarm and go home - a
         drone running low should give its work away while it can still
         say so, not fail halfway through it."""
+        if self.state == STATE_RETURNING:
+            # Never bid again, whatever the battery says: PX4 SITL refills
+            # its simulated battery to 100% once the drone disarms, and a
+            # landed drone went straight back to winning targets
+            # (2026-10-06). A real swap-and-relaunch would restart the node.
+            self.cbba.value_scale = 0.0
+            return
         if self._battery_remaining is None:
             return
         self.cbba.value_scale = battery_value_scale(self._battery_remaining)
-        if (self.state == STATE_RETURNING
-                or self._battery_remaining > BATTERY_RESERVE):
+        if self._battery_remaining > BATTERY_RESERVE:
             return
         released = self.cbba.release_all()
         self.state = STATE_RETURNING
+        self.cbba.value_scale = 0.0
         self.pso.state.best_position = self._home  # neighbors see where it's going
         self._publish_bundle_state()
         self.get_logger().warning(
