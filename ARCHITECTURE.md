@@ -174,7 +174,13 @@ own "next report" scope:**
   zero for good. (4) Drone 1 then also kept target 4 after drone 0 had
   already reached it: completions were never shared. `BundleState` now
   carries `completed_task_ids`, and a drone that hears one drops that
-  target for good (`cbba.learn_completed`).
+  target for good (`cbba.learn_completed`). Third run, all four fixes in:
+  both batteries healthy at detection (67–73%), drone 1 won the green
+  pair (0.687/0.645), both drones logged each other's completions
+  ("drone 1 finished target(s) [3]"), drone 1 landed at home at 25% and
+  kept broadcasting, closest 2.79m — but it finished its pair before
+  reaching reserve, so still nothing to hand off; `test-handoff` now
+  drops the battery immediately with a 1s drain.
 
   **Consensus fix, same day.** The update rule took whichever report was
   fresher; when both drones claimed a new target at about the same moment,
