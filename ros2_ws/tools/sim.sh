@@ -8,6 +8,7 @@
 # Usage, from any WSL terminal:
 #   bash sim.sh test-search [--headless]  both drones search, then two targets
 #                                    appear mid-search (bid, fly, resume search)
+#   bash sim.sh test-bids [--headless]    search, then 4 targets at once in two clusters
 #   bash sim.sh test-b [--headless]  normal spawn, both nodes, two targets
 #   bash sim.sh test-c [--headless]  head-on crossing: drone 1 hovers in drone 0's path
 #   bash sim.sh up [--headless]      just the sim (Gazebo, PX4 x2, agents), no nodes
@@ -177,6 +178,24 @@ test_search() {
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
 }
 
+test_bids() {
+  up "$@" || return 1
+  tmux set-environment -t "$SESSION" RUN_NAME test-bids
+  node 0 0.0 0.0
+  node 1 5.0 5.0
+  distance_window
+  wait_airborne 0 && wait_airborne 1 || return 1
+  say "both searching for 15s..."
+  sleep 15
+  # Four targets at once, two clusters: the right split is one cluster per
+  # drone, each drone flying its two in a row (see cbba.py).
+  marker 0 8 1 0 0; marker 1 9 1 0 0; marker 8 0 0 1 0; marker 9 1 0 1 0
+  detect 0 8 0; detect 1 9 0; detect 8 0 0; detect 9 1 0
+  say "4 targets: red (0,8)+(1,9), green (8,0)+(9,1). Expect one cluster per drone;"
+  say "coord0/coord1 show each bid, who wins, and 'reached target N - on to the next one'."
+  say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
+}
+
 repeat_search() {  # repeat_search N SECONDS - for measuring separation
   local n=${1:-3} secs=${2:-120} i before
   mkdir -p "$RUNS" && touch "$RUNS/summary.txt"
@@ -227,6 +246,7 @@ case "${1:-}" in
   up) shift; up "$@" ;;
   nodes) node 0 0.0 0.0; node 1 5.0 5.0; distance_window; say "nodes started." ;;
   test-search) shift; test_search "$@" ;;
+  test-bids) shift; test_bids "$@" ;;
   repeat) shift; repeat_search "$@" ;;
   test-b) shift; test_b "$@" ;;
   test-c) shift; test_c "$@" ;;
@@ -235,5 +255,5 @@ case "${1:-}" in
   distance) bash "$REPO/ros2_ws/tools/drone_distance.sh" ;;
   attach) tmux attach -t "$SESSION" ;;
   down) down ;;
-  *) sed -n '2,27p' "$SELF" | sed 's/^# \{0,1\}//' ;;
+  *) sed -n '2,28p' "$SELF" | sed 's/^# \{0,1\}//' ;;
 esac

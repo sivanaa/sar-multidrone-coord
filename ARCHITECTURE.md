@@ -79,7 +79,7 @@ ros2_ws/src/
       coverage.py             # search fitness: recently-seen grid + path clearance
       offboard_sequence.py    # when to (re-)send OFFBOARD/ARM to PX4
       separation.py           # collision floors (simulated position / PX4 setpoint)
-      cbba.py                 # CBBA bundle + consensus — first draft
+      cbba.py                 # CBBA: time-discounted marginal bids + consensus
       navigate.py             # straight-line fly-to-task, once a task is won
       coordination_node.py    # rclpy Node: state machine, pub/sub wiring
 ```
@@ -99,9 +99,33 @@ ros2_ws/src/
 
 **Explicitly deferred (flagged with `TODO` in code), matching the report's
 own "next report" scope:**
-- **Bid function** (`cbba.py: bid_for`) — currently just confidence /
-  (1 + distance). Report flags this as needing real tuning once there's
-  telemetry to test against.
+- **Bid function** (`cbba.py: bid_for`) — **replaced 2026-10-06** with the
+  CBBA paper's time-discounted reward: a drone's path of tasks is worth
+  `sum(confidence * 0.9 ** arrival_seconds)` (arrival estimated at 2 m/s
+  from its current position), and its bid for a new task is the value that
+  task adds when inserted at the best point in the path. A drone already
+  committed to work bids less for more, and a target on the way to an
+  existing one is flown first (`path` is now the flying order, `bundle`
+  the order tasks were won in). The first draft, confidence / (1 +
+  distance from where the drone is now), ignored committed work. The same
+  pass fixed a consensus bug: a drone outbid on one task released the
+  tasks after it (CBBA's release rule) but kept advertising its old
+  winning bids for them, so no other drone could ever win them
+  (`_release_from` now withdraws the claim), and the node now re-bids
+  after every consensus update, not only once its bundle is empty.
+  Dry run, two drones' CBBA exchanging bids to agreement, 300 random
+  batches of 2–3 targets:
+
+  | | old bid | new bid |
+  |---|---|---|
+  | batches with a target never assigned | 32 | **0** |
+  | allocation equal to the best possible (brute force) | 170/268 | **252/300** |
+  | extra mean wait over the best possible | 0.27s | **0.07s** |
+
+  Four targets at once in two clusters ((0,8)+(1,9), (8,0)+(9,1)), drones
+  anywhere in the area, 200 runs: old left a target unassigned in 116,
+  new in 0, with one cluster per drone in 171 (the rest reasonable 3/1
+  splits). Live check: `sim.sh test-bids`. Still not modeled: battery.
 - **PSO fitness function — replaced again 2026-10-06 by a coverage map**
   (`coverage.py`; see "Search: coverage map" below). The text in the rest of
   this bullet describes the previous version, `make_coverage_fitness`
@@ -862,8 +886,9 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    instead of spreading out to search (see "Known limits of the setpoint
    floor" above). **Replaced 2026-10-06** by the coverage-map search (see
    "Search: coverage map"), pending a live run (`sim.sh test-search`).
-   Still open: per-cell search value (flood risk), the bid function, and
-   the residual separation dips that search motion causes.
+   Still open: per-cell search value (flood risk). The bid function was
+   replaced the same day (see "Bid function" near the top), pending a
+   live `sim.sh test-bids` run.
 5. **Done 2026-10-06, pending live confirmation** — retry ARM until PX4
    actually reports armed. `coordination_node.py` used to send ARM once and
    set `_px4_armed` on *send*, not on confirmation, so one early denial (PX4

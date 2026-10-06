@@ -705,10 +705,12 @@ class CoordinationNode(Node):
             winning_agents=list(msg.winning_agent_ids),
             update_times=list(msg.update_times),
         )
-        if not self.cbba.bundle and self.cbba.tasks:
-            bundle_before = len(self.cbba.bundle)
-            self.cbba.build_bundle(self.pso.state.position)
-            changed = changed or len(self.cbba.bundle) > bundle_before
+        # Re-bid after every update, not only once the bundle is empty: a
+        # drone outbid on one of several tasks releases the ones after it
+        # too, and those are winnable again straight away.
+        bundle_before = len(self.cbba.bundle)
+        self.cbba.build_bundle(self.pso.state.position)
+        changed = changed or len(self.cbba.bundle) > bundle_before
         self._log_winner_changes(before)
         self._sync_state_with_bundle()
         # Only republish on an actual change — otherwise two drones would
