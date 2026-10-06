@@ -6,6 +6,9 @@
 # ARCHITECTURE.md "Launch sequence" for what each step is and why).
 #
 # Usage, from any WSL terminal:
+#   bash sim.sh demo [--headless]         recorded 3-act run (search, auction, battery
+#                                    hand-off); then `down`, then `render` for a GIF
+#   bash sim.sh render [RUN_DIR]     GIF of the newest recorded run, copied to Windows Videos
 #   bash sim.sh test-search [--headless]  both drones search, then two targets
 #                                    appear mid-search (bid, fly, resume search)
 #   bash sim.sh test-bids [--headless]    search, then 4 targets at once in two clusters
@@ -33,6 +36,8 @@ PX4=~/PX4-Autopilot
 AGENT=~/Micro-XRCE-DDS-Agent-243/build/MicroXRCEAgent
 SESSION=sim
 RUNS=~/sim_runs  # `down` saves each run's logs here, plus a line in summary.txt
+MISSION_LOG="$RUNS/current_mission.jsonl"  # sim.sh demo records here while running
+VIDEO_DIR=/mnt/c/Users/UAV_group/Videos  # sim.sh render copies the GIF here (Windows side)
 SELF="$(realpath "$0")"
 ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup.bash"
 NODE_ARGS="-p num_drones:=2 -p use_px4_offboard:=true -p hold_altitude:=3.0"
@@ -66,6 +71,12 @@ save_run() {  # every window's full scrollback -> ~/sim_runs/<time>_<test>/
   done
   closest=$(grep -o 'closest [0-9.]* m' "$dir/dist.log" 2>/dev/null | tail -1)
   echo "$(basename "$dir")  ${closest:-no distance recorded}" >> "$RUNS/summary.txt"
+  if [ -f "$MISSION_LOG" ]; then  # sim.sh demo's recording, for sim.sh render
+    tmux send-keys -t "$SESSION:recorder" C-c 2>/dev/null
+    sleep 1
+    mv "$MISSION_LOG" "$dir/mission.jsonl"
+    say "mission recording saved - turn it into a video with: bash $SELF render"
+  fi
   say "logs saved to $dir"
   say "drone-to-drone ${closest:-distance: not recorded (no dist window)}"
 }
@@ -205,6 +216,46 @@ test_bids() {
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
 }
 
+demo() {  # the whole hybrid approach in one recorded run, for presenting
+  up "$@" || return 1
+  tmux set-environment -t "$SESSION" RUN_NAME demo
+  mkdir -p "$RUNS"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
+  node 0 0.0 0.0
+  node 1 5.0 5.0
+  distance_window
+  wait_airborne 0 && wait_airborne 1 || return 1
+
+  say "act 1 - PSO search: 30s of both drones covering the area..."
+  sleep 30
+
+  say "act 2 - CBBA auction: 4 targets in two clusters (expect one cluster per drone)."
+  marker 0 8 1 0 0; marker 1 9 1 0 0; marker 8 0 0 1 0; marker 9 1 0 1 0
+  detect 0 8 0; detect 1 9 0; detect 8 0 0; detect 9 1 0
+  sleep 30
+
+  say "act 3 - resilience: 2 new targets, then drone 1's battery hits reserve."
+  marker 9 6 1 0 1; marker -1 3 1 0 1
+  detect 9 6 0; detect -1 3 0
+  tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_DRAIN 1" Enter
+  tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_MIN_PCT 20" Enter
+  sleep 30
+  say "demo done. Now: bash $SELF down   then   bash $SELF render"
+}
+
+render() {  # render [RUN_DIR] - newest run with a mission recording by default
+  local dir=${1:-$(ls -td "$RUNS"/*/ 2>/dev/null | while read -r d; do
+    [ -f "$d/mission.jsonl" ] && { echo "${d%/}"; break; }; done)}
+  [ -f "$dir/mission.jsonl" ] || { say "no mission.jsonl found - run: bash $SELF demo"; return 1; }
+  say "rendering $dir/mission.jsonl (takes about a minute)..."
+  python3 "$REPO/ros2_ws/tools/render_mission.py" "$dir/mission.jsonl" "$dir/mission.gif" \
+    --area 4 4 6 || return 1
+  if [ -d "$VIDEO_DIR" ]; then
+    cp "$dir/mission.gif" "$VIDEO_DIR/$(basename "$dir").gif"
+    say "copied to Windows: C:\\Users\\UAV_group\\Videos\\$(basename "$dir").gif"
+  fi
+}
+
 test_battery() {
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-battery
@@ -306,6 +357,8 @@ case "${1:-}" in
   test-bids) shift; test_bids "$@" ;;
   test-battery) shift; test_battery "$@" ;;
   test-handoff) shift; test_handoff "$@" ;;
+  demo) shift; demo "$@" ;;
+  render) shift; render "$@" ;;
   repeat) shift; repeat_search "$@" ;;
   test-b) shift; test_b "$@" ;;
   test-c) shift; test_c "$@" ;;

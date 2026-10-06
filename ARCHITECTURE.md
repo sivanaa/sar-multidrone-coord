@@ -704,6 +704,16 @@ distance (also appended to `~/sim_runs/summary.txt`). `sim.sh repeat N`
 runs `test-search` N times headless and lists those distances, for
 measuring separation across runs. Run `bash ros2_ws/tools/sim.sh` with no
 arguments for the full list.
+
+**Presenting a run:** `sim.sh demo` flies a three-act scenario (PSO search,
+a 4-target CBBA auction, then a low-battery hand-off) while
+`tools/mission_recorder.py` logs every coordination message and battery
+level to JSON lines; after `sim.sh down`, `sim.sh render` turns it into an
+animated GIF (`tools/render_mission.py`: map with recently-searched cells
+recomputed by `coverage.py`, PSO goals, targets coloured by winner, and an
+event log with the real bids) and copies it to `C:\Users\UAV_group\Videos`.
+Rendering uses only Pillow, because this machine's system matplotlib is
+broken by a system-wide NumPy 2 install.
 The manual steps stay documented here for when something needs debugging.
 
 One terminal per step (on Windows: `wsl -d Ubuntu-22.04` first in each).
