@@ -187,18 +187,29 @@ own "next report" scope:**
   `use_px4_offboard` the floor now constrains the *commanded setpoint*
   instead (`separation.py: constrain_setpoint`, called from
   `_enforce_collision_safety` before `_offboard_control_tick` sends it).
-  Two design points, both found the hard way:
-  1. A setpoint inside a neighbor's circle is moved onto the circle on the
-     side facing where the vehicle **actually is** — not along
+  Three design points, all found the hard way:
+  1. A setpoint inside a neighbor's circle is moved onto the circle near
+     the side facing where the vehicle **actually is** — not along
      neighbor→setpoint like `enforce_min_separation`, which can land the
      point on the far side of the neighbor so the flight controller flies
-     straight through it to get there (covered by
-     `test/test_separation.py`).
+     straight through it to get there. "Near" = the vehicle's own angle
+     around the neighbor, rotated toward the setpoint's angle by at most
+     20° per tick (`max_slide`). The first version (2026-10-05) used the
+     vehicle's angle exactly, which threw away navigate.py's sideways
+     "go around" step every tick and caused a head-on stall (Test C below).
+     Both covered by `test/test_separation.py`.
   2. The setpoint floor is `SETPOINT_MIN_SEPARATION_M` = 1.8m, deliberately
      above `MIN_SEPARATION_M` (1.5m): commanding exactly 1.5m let the real
      distance wobble down to **1.40m** (PX4 tracking lag plus the 0.5s
      tick). With the margin, the real distance held at **min 1.73m / mean
      1.79m** over 30s of flight.
+  3. On a real vehicle, navigate.py's soft avoidance starts at
+     `SETPOINT_AVOID_RADIUS_M` = 2.5m, not 1.5m: at 1.5m it never acted at
+     all, because the 1.8m setpoint floor already held the vehicle outside
+     that radius. Simulated-only runs keep 1.5m. A larger radius alone did
+     **not** fix the stall (dry run at 1.5/2.0/2.5/3.0m all stalled) — the
+     slide in point 1 did; the larger radius just gets past a neighbor dead
+     ahead faster (~8s vs ~24s in the dry run).
   Only works because every drone now reports position in the same shared
   frame (see "Shared coordinate frame" under the two-drone Gazebo section)
   — before that, neighbor positions weren't comparable at all.
@@ -211,18 +222,31 @@ own "next report" scope:**
     drone 0 (bid 0.365 vs 0.281) and reached to 0.05m; green target won by
     drone 1 (0.276 vs 0.131) and reached to 0.11m; closest drone-to-drone
     distance across the run **2.06m**; no stalls.
+  - **Test C — head-on crossing (2026-10-06)**: drone 1 hovering at its
+    spawn (5,5) via `commander takeoff` in its PX4 shell, its coordination
+    node **not** running (it would search and bid instead of holding
+    still); drone 0 told where it is by hand with
+    `ros2 topic pub -r 2 /drone_1/coordination/agent_state coordination_msgs/msg/AgentState "{drone_id: 1, position: {x: 5.0, y: 5.0, z: 0.0}, best_position: {x: 5.0, y: 5.0, z: 0.0}, best_fitness: 0.0, state: 0}"`;
+    `detect_target` on drone 0 at (10,10), so drone 1 sits dead on the
+    straight path. **Old code: stalled** at (3.77, 3.75), ~1.75m from
+    drone 1, indefinitely. **With the slide fix: went around** —
+    (3.65, 4.01) → (3.26, 5.54) → (4.40, 6.97) — and reached the target at
+    (9.92, 9.74); after completing it, crossed back past drone 1 on the
+    other side, again without stalling. Closest across the whole run
+    **1.68m** (matches the dry run's ~1.67–1.75m).
   Measure it with `ros2_ws/tools/drone_distance.sh` (live distance plus
   closest-so-far; occasionally prints one bogus line when `gz model`
   returns a bad pose read — two drones "swapping" spawn points for a single
   0.5s sample — ignore isolated jumps like that).
 
   **Known limits of the setpoint floor:**
-  - **Possible head-on stall**: the floor stops a drone at 1.8m on its own
-    side, but the soft "go around" terms in `navigate.py`/`pso.py` only act
-    inside 1.5m — so a drone whose straight path to a target runs through
-    a hovering neighbor may stop short instead of routing around. Not seen
-    in Test B (no crossing paths); needs a crossing-paths test, and likely
-    a soft-term radius at or above the setpoint floor.
+  - ~~Possible head-on stall~~ — confirmed real and fixed 2026-10-06 (Test
+    C above, design points 1 and 3). Only tested against a *hovering*
+    neighbor; two drones crossing while both move is still untested.
+  - **Drone returns to its spawn after a task**: in Test C, drone 0 flew
+    back to about (−0.2, −0.3) after finishing, instead of searching
+    around the area center (4,4). Not investigated yet — likely the same
+    PSO pull as the next item (personal/swarm best), not a safety issue.
   - **Drones pinned together while searching**: in Test A both drones sat
     at the floor for the whole run instead of spreading out — PSO's social
     term pulls each toward the swarm-best point (drone 0's), and the floor
@@ -768,9 +792,10 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    ready yet) leaves that drone on the ground for the whole run. Should
    re-send every few seconds until `VehicleStatus.arming_state` says armed —
    matters for real hardware too, not just SITL.
-6. **Open** — crossing-paths test for the setpoint floor's possible head-on
-   stall (see "Known limits of the setpoint floor"), then start AirSim
-   planning: AirSim can run on the same PX4 SITL in place of Gazebo, so the
+6. **Partially done 2026-10-06** — crossing-paths test against a hovering
+   neighbor done, stall found and fixed (Test C, see "Hard floor for real
+   vehicles"). Still open: both drones moving through each other's paths,
+   then start AirSim planning: AirSim can run on the same PX4 SITL in place of Gazebo, so the
    coordination node's DDS/MAVLink paths should carry over; the real new
    work is a vision → `detect_target` bridge (detection pixel → world
    position via drone pose and camera geometry).

@@ -37,32 +37,43 @@ def enforce_min_separation(candidate_position, neighbor_positions, min_separatio
 
 
 def constrain_setpoint(setpoint, current_position, neighbor_positions,
-                       min_separation):
+                       min_separation, max_slide=math.radians(20)):
     """Hard floor for a real vehicle: adjust the position *setpoint* sent
     to the flight controller rather than the vehicle's position, which is
     ground truth and can't be teleported.
 
     A setpoint inside a neighbor's `min_separation` circle is moved onto
-    that circle on the side facing `current_position` (where the vehicle
-    actually is), not on whichever side the setpoint happened to land.
+    that circle, at the angle (seen from the neighbor) of `current_position`
+    rotated toward the setpoint's own angle by at most `max_slide`.
     enforce_min_separation's rule (push out along neighbor -> candidate) is
     fine for a teleported simulated position, but for a setpoint it can
     land on the far side of the neighbor, and the flight controller would
-    then fly the vehicle straight through the neighbor to reach it.
-    Routing *around* a neighbor stays the soft terms' job (pso.py,
-    navigate.py); this only guarantees the commanded point is never inside
-    the floor. Returns the (possibly adjusted) setpoint.
+    then fly the vehicle straight through the neighbor to reach it — the
+    `max_slide` cap is what prevents that.
+
+    The slide itself is what lets a vehicle get *around* a neighbor sitting
+    in its path. The first version (2026-10-05) put the setpoint exactly on
+    the vehicle's own side, which threw away the sideways "go around"
+    component navigate.py adds every tick: a dry run of a vehicle flying
+    at a hovering neighbor dead ahead stalled at 1.8m forever, at every
+    soft-term radius tried. With a 20 degree slide it arrives, holding ~1.7m
+    at the closest point. Returns the (possibly adjusted) setpoint.
     """
     sx, sy = setpoint
     cx, cy = current_position
     for nx, ny in neighbor_positions:
         if math.hypot(sx - nx, sy - ny) >= min_separation:
             continue
-        dx, dy = cx - nx, cy - ny
-        distance = math.hypot(dx, dy)
-        if distance == 0:
-            ux, uy = 1.0, 0.0  # on top of the neighbor: pick an arbitrary side
+        if (cx, cy) == (nx, ny):
+            vehicle_angle = 0.0  # on top of the neighbor: pick an arbitrary side
         else:
-            ux, uy = dx / distance, dy / distance
-        sx, sy = nx + ux * min_separation, ny + uy * min_separation
+            vehicle_angle = math.atan2(cy - ny, cx - nx)
+        if (sx, sy) == (nx, ny):
+            angle = vehicle_angle
+        else:
+            offset = math.atan2(sy - ny, sx - nx) - vehicle_angle
+            offset = (offset + math.pi) % (2 * math.pi) - math.pi
+            angle = vehicle_angle + max(-max_slide, min(max_slide, offset))
+        sx = nx + min_separation * math.cos(angle)
+        sy = ny + min_separation * math.sin(angle)
     return (sx, sy)

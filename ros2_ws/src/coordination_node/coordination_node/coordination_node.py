@@ -34,6 +34,12 @@ MIN_SEPARATION_M = 1.5  # must match pso.py's default; see separation.py
 # apart, ~+/-0.1m wobble around the commanded value). The margin keeps the
 # actual distance at or above MIN_SEPARATION_M.
 SETPOINT_MIN_SEPARATION_M = MIN_SEPARATION_M + 0.3
+# Radius at which navigate.py starts steering a real vehicle around a
+# neighbor. Must be above SETPOINT_MIN_SEPARATION_M: at 1.5m the soft term
+# never acted, because the setpoint floor already held the vehicle at 1.8m
+# (head-on stall, dry run 2026-10-06). 2.5m gets past a neighbor dead ahead
+# in ~8s instead of ~24s.
+SETPOINT_AVOID_RADIUS_M = 2.5
 ARRIVAL_RADIUS_M = 0.3  # must match navigate.py's step_toward default
 
 STATE_SEARCH = AgentState.STATE_SEARCH
@@ -652,7 +658,8 @@ class CoordinationNode(Node):
             max_speed=self.pso.max_speed, arrival_radius=ARRIVAL_RADIUS_M,
             real_position=self._real_position,
             neighbor_positions=list(self.neighbor_position.values()),
-            min_separation=MIN_SEPARATION_M)
+            min_separation=(SETPOINT_AVOID_RADIUS_M if self.use_px4_offboard
+                            else MIN_SEPARATION_M))
         self.pso.state.position = (tracked_x, tracked_y)
         if self.use_px4_offboard:
             self._commanded_xy = (commanded_x, commanded_y)
