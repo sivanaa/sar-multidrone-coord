@@ -125,7 +125,11 @@ own "next report" scope:**
   Four targets at once in two clusters ((0,8)+(1,9), (8,0)+(9,1)), drones
   anywhere in the area, 200 runs: old left a target unassigned in 116,
   new in 0, with one cluster per drone in 171 (the rest reasonable 3/1
-  splits). Live check: `sim.sh test-bids`. Still not modeled: battery.
+  splits). **Live (`sim.sh test-bids`, 2026-10-06)**: drone 0 won the red
+  cluster (0.630/0.614 vs 0.523/0.506), drone 1 the green one (0.727/0.674
+  vs 0.324/0.359), both agreed, each flew its pair back to back (drone 0
+  in the shorter order, target 2 then 1) and resumed searching; drones no
+  closer than 4.04m. Still not modeled: battery.
 - **PSO fitness function — replaced again 2026-10-06 by a coverage map**
   (`coverage.py`; see "Search: coverage map" below). The text in the rest of
   this bullet describes the previous version, `make_coverage_fitness`
@@ -887,8 +891,8 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    floor" above). **Replaced 2026-10-06** by the coverage-map search (see
    "Search: coverage map"), pending a live run (`sim.sh test-search`).
    Still open: per-cell search value (flood risk). The bid function was
-   replaced the same day (see "Bid function" near the top), pending a
-   live `sim.sh test-bids` run.
+   replaced the same day and confirmed live (see "Bid function" near the
+   top).
 5. **Done 2026-10-06, pending live confirmation** — retry ARM until PX4
    actually reports armed. `coordination_node.py` used to send ARM once and
    set `_px4_armed` on *send*, not on confirmation, so one early denial (PX4
