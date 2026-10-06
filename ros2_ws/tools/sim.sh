@@ -9,7 +9,9 @@
 #   bash sim.sh test-search [--headless]  both drones search, then two targets
 #                                    appear mid-search (bid, fly, resume search)
 #   bash sim.sh test-bids [--headless]    search, then 4 targets at once in two clusters
-#   bash sim.sh test-battery [--headless] drone 1 runs low: bids less, hands off, lands
+#   bash sim.sh test-battery [--headless] drone 1 at 35% bids less, then hits reserve and lands
+#   bash sim.sh test-handoff [--headless] drone 1 wins targets, then hits reserve mid-flight:
+#                                    hands them to drone 0, flies home, lands
 #   bash sim.sh test-b [--headless]  normal spawn, both nodes, two targets
 #   bash sim.sh test-c [--headless]  head-on crossing: drone 1 hovers in drone 0's path
 #   bash sim.sh up [--headless]      just the sim (Gazebo, PX4 x2, agents), no nodes
@@ -222,6 +224,27 @@ test_battery() {
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
 }
 
+test_handoff() {
+  up "$@" || return 1
+  tmux set-environment -t "$SESSION" RUN_NAME test-handoff
+  tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_DRAIN 20" Enter
+  node 0 0.0 0.0
+  node 1 5.0 5.0
+  distance_window
+  wait_airborne 0 && wait_airborne 1 || return 1
+  say "both searching for 15s..."
+  sleep 15
+  # Both healthy, so drone 1 wins its share (one cluster, as in test-bids)...
+  marker 0 8 1 0 0; marker 1 9 1 0 0; marker 8 0 0 1 0; marker 9 1 0 1 0
+  detect 0 8 0; detect 1 9 0; detect 8 0 0; detect 9 1 0
+  sleep 3
+  # ...then runs low on the way to them.
+  say "drone 1 battery -> 20% mid-flight: it should hand its targets to drone 0,"
+  say "fly home to (5, 5) and land; drone 0 should end up doing all 4."
+  tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_MIN_PCT 20" Enter
+  say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
+}
+
 repeat_search() {  # repeat_search N SECONDS - for measuring separation
   local n=${1:-3} secs=${2:-120} i before
   mkdir -p "$RUNS" && touch "$RUNS/summary.txt"
@@ -274,6 +297,7 @@ case "${1:-}" in
   test-search) shift; test_search "$@" ;;
   test-bids) shift; test_bids "$@" ;;
   test-battery) shift; test_battery "$@" ;;
+  test-handoff) shift; test_handoff "$@" ;;
   repeat) shift; repeat_search "$@" ;;
   test-b) shift; test_b "$@" ;;
   test-c) shift; test_c "$@" ;;

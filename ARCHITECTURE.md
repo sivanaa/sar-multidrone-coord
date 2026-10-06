@@ -143,9 +143,17 @@ own "next report" scope:**
   machine). Scaling the whole value keeps bids comparable across drones
   and keeps CBBA's diminishing-marginal-gain property. 50% is the full
   point partly because PX4 SITL's simulated battery holds at 50% by
-  default, so ordinary sim runs are unaffected. Live test:
-  `sim.sh test-battery` (drone 1 forced to 35%, then 20%, via PX4's
-  `SIM_BAT_MIN_PCT`).
+  default, so ordinary sim runs are unaffected. **Live, `sim.sh
+  test-battery`** (drone 1 forced to 35%, then 20%, via PX4's
+  `SIM_BAT_MIN_PCT`): at 35% drone 1 bid 0.360/0.336/0.207/0.206 for the
+  four `test-bids` targets against drone 0's 0.699/0.736/0.391/0.422, so
+  drone 0 took all four — including the green pair drone 1 wins at full
+  battery (0.727/0.674 in `test-bids`) — the 4th via the re-bid after
+  finishing a target. At 22% drone 1 logged "at reserve ... returning home
+  to land", landed at its spawn, PX4 "Disarmed by landing"; drones no
+  closer than 2.11m. It held no targets at that point, so the hand-off
+  itself is exercised by `sim.sh test-handoff` (targets won at full
+  battery, then reserve mid-flight).
 
   **Consensus fix, same day.** The update rule took whichever report was
   fresher; when both drones claimed a new target at about the same moment,
