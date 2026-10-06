@@ -180,7 +180,13 @@ own "next report" scope:**
   ("drone 1 finished target(s) [3]"), drone 1 landed at home at 25% and
   kept broadcasting, closest 2.79m — but it finished its pair before
   reaching reserve, so still nothing to hand off; `test-handoff` now
-  drops the battery immediately with a 1s drain.
+  drops the battery immediately with a 1s drain. **Fourth run — hand-off
+  confirmed live**: drone 1 won the green pair (0.694/0.650 vs
+  0.404/0.421), logged "battery 23% - at reserve, handing off targets [3,
+  4]", drone 0 won both straight away (0.486/0.452, drone 1 agreeing),
+  flew all four (2 → 1 → 3 → 4) and resumed searching; drone 1 landed at
+  home, kept running and logged each of drone 0's completions; closest
+  1.76m (drone 0 passing the landed drone 1).
 
   **Consensus fix, same day.** The update rule took whichever report was
   fresher; when both drones claimed a new target at about the same moment,
