@@ -33,9 +33,8 @@ class ParticleSwarmSearch:
     """One drone's PSO particle.
 
     Fitness is pluggable via `fitness_fn(x, y, neighbor_positions) -> float`
-    so the search objective (currently a nearest-neighbor-spread placeholder,
-    see coordination_node.py's make_coverage_fitness) can be swapped for a
-    flood-risk-weighted coverage score without touching the update rule.
+    so the search objective (the node uses coverage.py's flood-risk-weighted
+    coverage map) can change without touching the update rule.
     `neighbor_positions` is passed through so the fitness function itself
     can be a shared, cross-drone-comparable quality measure (e.g. "how far
     from the nearest other drone") rather than something relative to this

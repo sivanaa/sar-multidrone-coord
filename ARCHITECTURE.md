@@ -203,9 +203,10 @@ own "next report" scope:**
   It rewarded distance from your nearest known neighbor
   (spread out, don't duplicate search effort), softly bounded by a shared
   `area_center`/`area_radius`, rather than any real search value. This is
-  still a placeholder, not the flood-risk-weighted scoring from the
-  single-drone GPS routing (`edge-ai-gateway`) that should eventually
-  replace it — but it fixed two concrete, found-live problems the previous
+  still a placeholder (the "flood-risk-weighted scoring from the
+  single-drone GPS routing" it was meant to be replaced by turned out not
+  to exist — see "Search: flood-risk weighting") — but it fixed two
+  concrete, found-live problems the previous
   version had. (History: a flat/neutral placeholder was tried first and
   rejected during review — it silently froze every drone's personal-best at
   its starting position, which also froze the neighbor-pull term, so the
@@ -403,9 +404,37 @@ own "next report" scope:**
     at ..., heading for ..., area explored N%`), its bid for every new
     target, every change of winner, and `reached target N - back to
     searching`.
-  - Still not target-aware: every unexplored cell is worth the same. The
-    flood-risk-weighted scoring from the single-drone GPS routing would
-    slot in as a per-cell weight in `CoverageMap`.
+  - ~~Every unexplored cell is worth the same~~ — flood-risk weighting
+    added 2026-10-07, see "Search: flood-risk weighting" below.
+
+  **Search: flood-risk weighting — 2026-10-07.** Earlier notes here (and
+  in code TODOs) said the single-drone pipeline already had
+  "flood-risk-weighted scoring" for GPS routing that could be reused.
+  Checked against the code: it doesn't. `edge-ai-gateway`
+  (github.com/basilrari/edge-ai-gateway) is an LLM command router — it
+  forwards `flood_seg`/`flood_class` to a `detect_flood` tool on the Model
+  Server (`Drone_LLM`, not public, not on the gpu server) and missions are
+  plain waypoint uploads; there is no risk map or route scoring to reuse.
+  So the weighting is built to take a risk map from whatever source exists:
+  - **Risk map** (`coverage.load_risk_map`): JSON `{"cell_size": 1.0,
+    "cells": [[i, j, risk], ...]}`, risk 0–1 per 1m cell in the shared
+    frame; node parameter `risk_map_file` (empty = uniform, exactly the old
+    behaviour). Real sources later: a GIS flood-hazard layer, or
+    `flood_seg` masks aggregated per cell (fraction of water pixels seen).
+  - **Effect** (`coverage.py`): a cell at risk r is worth `1 + 3r` to
+    search (up to 4×) and goes stale after `revisit_after_s × (1 − 0.5r)`
+    (revisited up to twice as often); candidate goals are drawn in
+    proportion to value, so risky ground is offered to PSO more often.
+  - **Synthetic map for simulation**: `tools/make_risk_map.py` — a river
+    polyline bending across the north of the area, risk
+    `exp(−(d/2m)²)` with distance d from it (146 cells ≥ 0.01, 56 ≥ 0.5).
+  - **Dry run** (two drones, PX4 tracking modelled, 10Hz floor, 20 × 3
+    min): 90% of high-risk cells first searched at **4.6s vs 9.4s**
+    uniform; **5.73 vs 2.85** searches per high-risk cell; low-risk cells
+    3.97 vs 2.93 (more stale cells keeps the drones moving); whole area
+    still 100% covered; worst separation 1.56m.
+  - **Live**: `sim.sh demo-flood` (recorded; `sim.sh render` draws the
+    risk layer and a "flood-risk ground searched" figure).
 
   **Two more real gaps found via live testing, same day.** Added the
   min-separation readout to `visualize_run.py` specifically because a
@@ -966,7 +995,9 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    instead of spreading out to search (see "Known limits of the setpoint
    floor" above). **Replaced 2026-10-06** by the coverage-map search (see
    "Search: coverage map"), pending a live run (`sim.sh test-search`).
-   Still open: per-cell search value (flood risk). The bid function was
+   Per-cell search value (flood risk) added 2026-10-07 with a synthetic
+   map (see "Search: flood-risk weighting"); still open: a real risk
+   source (GIS layer or aggregated `flood_seg` output). The bid function was
    replaced the same day and confirmed live (see "Bid function" near the
    top).
 5. **Done 2026-10-06, pending live confirmation** — retry ARM until PX4

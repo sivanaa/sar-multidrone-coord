@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.join(
     os.path.dirname(os.path.abspath(__file__)), '..', 'src', 'coordination_node'))
-from coordination_node.coverage import CoverageMap  # noqa: E402
+from coordination_node.coverage import CoverageMap, load_risk_map  # noqa: E402
 
 W, H = 1280, 720
 MAP = 720                        # left square panel
@@ -35,6 +35,8 @@ GRID = (225, 224, 217)
 AREA_EDGE = (150, 149, 143)
 UNEXPLORED = (255, 255, 255)
 EXPLORED = (196, 222, 246)       # fresh; fades back to UNEXPLORED as it goes stale
+RISK = (64, 168, 160)            # flood-risk tint on unsearched ground (teal)
+RIVER = (31, 110, 160)
 DRONE_COLORS = [(42, 120, 214), (235, 104, 52), (27, 175, 122), (237, 161, 0)]
 PENDING = (150, 149, 143)
 ALERT = (208, 59, 59)
@@ -58,7 +60,8 @@ def mix(a, b, f):
 class Mission:
     """Everything the renderer needs, derived once from the log."""
 
-    def __init__(self, path, area_center, area_radius, sensor_radius, revisit_s):
+    def __init__(self, path, area_center, area_radius, sensor_radius, revisit_s,
+                 risk_map=None):
         with open(path) as f:
             self.records = sorted((json.loads(line) for line in f if line.strip()),
                                   key=lambda r: r['t'])
@@ -70,7 +73,12 @@ class Mission:
         self.t_end = self.records[-1]['t']
         self.coverage = CoverageMap(area_center, area_radius,
                                     sensor_radius=sensor_radius,
-                                    revisit_after_s=revisit_s)
+                                    revisit_after_s=revisit_s,
+                                    risk=load_risk_map(risk_map)[1] if risk_map else None)
+        self.river = []
+        if risk_map:
+            with open(risk_map) as f:
+                self.river = json.load(f).get("river", [])
         self.drones = sorted({r['drone'] for r in self.records if r['type'] == 'agent'})
         self.targets = {}            # id -> dict(x, y, t)
         for r in self.records:
@@ -219,17 +227,23 @@ class Renderer:
         for cell in cov.area_cells:
             seen = cov.last_seen.get(cell)
             age = None if seen is None else t - seen
-            fill = UNEXPLORED if age is None or age >= cov.revisit_after_s else mix(
-                EXPLORED, UNEXPLORED, age / cov.revisit_after_s)
+            revisit = cov.revisit_after(cell)
+            unsearched = mix(UNEXPLORED, RISK, 0.6 * cov.risk.get(cell, 0.0))
+            searched = mix(EXPLORED, RISK, 0.35 * cov.risk.get(cell, 0.0))
+            fill = unsearched if age is None or age >= revisit else mix(
+                searched, unsearched, age / revisit)
             x0, y0 = cell[0] * s, cell[1] * s
             a = self.px(x0 + s, y0)
             b = self.px(x0, y0 + s)
             d.rectangle([a, b], fill=fill, outline=GRID)
+        if len(self.m.river) > 1:
+            d.line([self.px(*p) for p in self.m.river], fill=RIVER, width=3)
         cx, cy = self.px(*self.area_center)
         r = self.area_radius * self.scale
         d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=AREA_EDGE, width=2)
-        d.text((10, MAP - 24), 'search area  (1 m cells, shaded = recently searched)',
-               font=self.f_small, fill=MUTED)
+        d.text((10, MAP - 24), 'search area  (1 m cells; blue = recently searched'
+               + ('; teal = flood risk, searched first and more often)'
+                  if cov.risk else ')'), font=self.f_small, fill=MUTED)
 
         for tid, tgt in self.m.targets.items():
             if tgt['t'] > t:
@@ -273,12 +287,17 @@ class Renderer:
         d.text((x0, 56), '2 PX4 drones in Gazebo, decentralized (no ground station)',
                font=self.f_sub, fill=MUTED)
         d.text((x0, 86), f't = {t:5.1f} s', font=self.f_head, fill=INK)
-        explored = self.m.coverage.explored_fraction(t)
-        d.text((x0 + 150, 86), f'area searched in last '
-               f'{self.m.coverage.revisit_after_s:.0f}s: {explored:.0%}',
+        cov = self.m.coverage
+        d.text((x0 + 150, 86), f'area searched recently: {cov.explored_fraction(t):.0%}',
                font=self.f_head, fill=INK)
-
         y = 124
+        in_area = {c: r for c, r in cov.risk.items() if c in cov.area_cells}
+        if in_area:
+            fresh = sum(r for c, r in in_area.items()
+                        if c in cov.last_seen and t - cov.last_seen[c] < cov.revisit_after(c))
+            d.text((x0 + 150, 112), 'flood-risk ground searched: '
+                   f'{fresh / sum(in_area.values()):.0%}', font=self.f_head, fill=RISK)
+            y = 150
         for drone in self.m.drones:
             color = DRONE_COLORS[drone % len(DRONE_COLORS)]
             rec = self.agent.get(drone)
@@ -331,9 +350,11 @@ def main():
     p.add_argument('--sensor-radius', type=float, default=1.5)
     p.add_argument('--revisit', type=float, default=60.0)
     p.add_argument('--frames-dir', help='also write numbered PNG frames here')
+    p.add_argument('--risk-map', help='flood-risk map the nodes were given (risk layer)')
     a = p.parse_args()
 
-    mission = Mission(a.log, tuple(a.area[:2]), a.area[2], a.sensor_radius, a.revisit)
+    mission = Mission(a.log, tuple(a.area[:2]), a.area[2], a.sensor_radius, a.revisit,
+                      a.risk_map)
     renderer = Renderer(mission, tuple(a.area[:2]), a.area[2])
     end = mission.t_end if a.end is None else min(a.end, mission.t_end)
     step = a.speed / a.fps

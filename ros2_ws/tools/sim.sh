@@ -8,6 +8,8 @@
 # Usage, from any WSL terminal:
 #   bash sim.sh demo [--headless]         recorded 3-act run (search, auction, battery
 #                                    hand-off); then `down`, then `render` for a GIF
+#   bash sim.sh demo-flood [--headless]   recorded search weighted by a synthetic river
+#                                    flood-risk map (tools/make_risk_map.py)
 #   bash sim.sh render [RUN_DIR]     GIF of the newest recorded run, copied to Windows Videos
 #   bash sim.sh test-search [--headless]  both drones search, then two targets
 #                                    appear mid-search (bid, fly, resume search)
@@ -37,6 +39,7 @@ AGENT=~/Micro-XRCE-DDS-Agent-243/build/MicroXRCEAgent
 SESSION=sim
 RUNS=~/sim_runs  # `down` saves each run's logs here, plus a line in summary.txt
 MISSION_LOG="$RUNS/current_mission.jsonl"  # sim.sh demo records here while running
+RISK_MAP="$RUNS/current_risk_map.json"  # sim.sh demo-flood's flood map while running
 VIDEO_DIR=/mnt/c/Users/UAV_group/Videos  # sim.sh render copies the GIF here (Windows side)
 SELF="$(realpath "$0")"
 ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup.bash"
@@ -75,6 +78,7 @@ save_run() {  # every window's full scrollback -> ~/sim_runs/<time>_<test>/
     tmux send-keys -t "$SESSION:recorder" C-c 2>/dev/null
     sleep 1
     mv "$MISSION_LOG" "$dir/mission.jsonl"
+    [ -f "$RISK_MAP" ] && mv "$RISK_MAP" "$dir/risk_map.json"
     say "mission recording saved - turn it into a video with: bash $SELF render"
   fi
   say "logs saved to $dir"
@@ -136,7 +140,7 @@ up() {
 }
 
 node() {  # node N INITIAL_X INITIAL_Y
-  window "coord$1" "$ROS_ENV && ros2 run coordination_node coordination_node --ros-args -p drone_id:=$1 -p initial_x:=$2 -p initial_y:=$3 $NODE_ARGS"
+  window "coord$1" "$ROS_ENV && ros2 run coordination_node coordination_node --ros-args -p drone_id:=$1 -p initial_x:=$2 -p initial_y:=$3 $NODE_ARGS ${NODE_EXTRA:-}"
 }
 
 distance_window() {
@@ -243,13 +247,35 @@ demo() {  # the whole hybrid approach in one recorded run, for presenting
   say "demo done. Now: bash $SELF down   then   bash $SELF render"
 }
 
+demo_flood() {  # search weighted by a synthetic flood-risk map, recorded
+  up "$@" || return 1
+  tmux set-environment -t "$SESSION" RUN_NAME demo-flood
+  mkdir -p "$RUNS"
+  python3 "$REPO/ros2_ws/tools/make_risk_map.py" "$RISK_MAP" || return 1
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
+  NODE_EXTRA="-p risk_map_file:=$RISK_MAP"
+  node 0 0.0 0.0
+  node 1 5.0 5.0
+  distance_window
+  wait_airborne 0 && wait_airborne 1 || return 1
+
+  say "act 1 - flood-weighted search: a river bends across the north of the area;"
+  say "the drones should go there first and keep coming back to it (45s)..."
+  sleep 45
+  say "act 2 - targets on the river bank and in the dry south (CBBA as usual)."
+  marker 8 3 1 0 0; marker 1 1 0 1 0
+  detect 8 3 0; detect 1 1 0
+  sleep 30
+  say "demo done. Now: bash $SELF down   then   bash $SELF render"
+}
+
 render() {  # render [RUN_DIR] - newest run with a mission recording by default
   local dir=${1:-$(ls -td "$RUNS"/*/ 2>/dev/null | while read -r d; do
     [ -f "$d/mission.jsonl" ] && { echo "${d%/}"; break; }; done)}
   [ -f "$dir/mission.jsonl" ] || { say "no mission.jsonl found - run: bash $SELF demo"; return 1; }
   say "rendering $dir/mission.jsonl (takes about a minute)..."
   python3 "$REPO/ros2_ws/tools/render_mission.py" "$dir/mission.jsonl" "$dir/mission.gif" \
-    --area 4 4 6 || return 1
+    --area 4 4 6 $([ -f "$dir/risk_map.json" ] && echo --risk-map "$dir/risk_map.json") || return 1
   if [ -d "$VIDEO_DIR" ]; then
     cp "$dir/mission.gif" "$VIDEO_DIR/$(basename "$dir").gif"
     say "copied to Windows: C:\\Users\\UAV_group\\Videos\\$(basename "$dir").gif"
@@ -358,6 +384,7 @@ case "${1:-}" in
   test-battery) shift; test_battery "$@" ;;
   test-handoff) shift; test_handoff "$@" ;;
   demo) shift; demo "$@" ;;
+  demo-flood) shift; demo_flood "$@" ;;
   render) shift; render "$@" ;;
   repeat) shift; repeat_search "$@" ;;
   test-b) shift; test_b "$@" ;;

@@ -22,18 +22,39 @@ same unexplored patch.
 """
 
 import math
+import json
 import random
+
+# Flood risk (0-1 per cell, see load_risk_map): a cell at risk r is worth
+# 1 + RISK_VALUE_GAIN * r to search (up to 4x), and goes stale after
+# revisit_after_s * (1 - RISK_REVISIT_SPEEDUP * r) (up to twice as often).
+# With no risk map every cell is r = 0 and nothing changes.
+RISK_VALUE_GAIN = 3.0
+RISK_REVISIT_SPEEDUP = 0.5
+
+
+def load_risk_map(path):
+    """Read a risk map: JSON {"cell_size": 1.0, "cells": [[i, j, risk], ...]},
+    cells indexed like CoverageMap's (floor(x / cell_size), floor(y /
+    cell_size)) in the shared frame. Any source can produce one - a GIS
+    flood-hazard layer, or flood-segmentation output aggregated per cell
+    (tools/make_risk_map.py writes synthetic ones for simulation)."""
+    with open(path) as f:
+        data = json.load(f)
+    return data.get('cell_size', 1.0), {
+        (int(i), int(j)): max(0.0, min(1.0, float(r))) for i, j, r in data['cells']}
 
 
 class CoverageMap:
 
     def __init__(self, area_center, area_radius, cell_size=1.0,
-                 sensor_radius=2.0, revisit_after_s=90.0):
+                 sensor_radius=2.0, revisit_after_s=90.0, risk=None):
         self.area_center = area_center
         self.area_radius = area_radius
         self.cell_size = cell_size
         self.sensor_radius = sensor_radius
         self.revisit_after_s = revisit_after_s
+        self.risk = risk or {}  # cell -> flood risk 0-1 (missing = 0)
         self.last_seen = {}  # cell -> time it was last seen
 
         cx, cy = area_center
@@ -63,22 +84,33 @@ class CoverageMap:
         i, j = self._cell(x, y)
         return [(i + di, j + dj) for di, dj in self._footprint]
 
+    def value(self, cell):
+        """What searching this cell is worth, by its flood risk."""
+        return 1.0 + RISK_VALUE_GAIN * self.risk.get(cell, 0.0)
+
+    def revisit_after(self, cell):
+        """Seconds until a searched cell is worth searching again -
+        sooner where flood risk is higher."""
+        return self.revisit_after_s * (
+            1.0 - RISK_REVISIT_SPEEDUP * self.risk.get(cell, 0.0))
+
     def _stale(self, cell, now):
         seen = self.last_seen.get(cell)
-        return seen is None or now - seen >= self.revisit_after_s
+        return seen is None or now - seen >= self.revisit_after(cell)
 
     def mark_seen(self, x, y, now):
         for cell in self._cells_seen_from(x, y):
             self.last_seen[cell] = now
 
     def unexplored_near(self, x, y, now, claimed=()):
-        """Stale in-area cells a drone at (x, y) would see, minus any a
-        drone at one of the `claimed` points would see."""
+        """Value (see value()) of the stale in-area cells a drone at (x, y)
+        would see, minus any a drone at one of the `claimed` points would
+        see. Without a risk map, that's simply their count."""
         claimed_cells = set()
         for cx, cy in claimed:
             claimed_cells.update(self._cells_seen_from(cx, cy))
         return sum(
-            1 for cell in self._cells_seen_from(x, y)
+            self.value(cell) for cell in self._cells_seen_from(x, y)
             if cell in self._area_cell_set and cell not in claimed_cells
             and self._stale(cell, now))
 
@@ -91,8 +123,15 @@ class CoverageMap:
         """Up to `count` random stale cell centers - candidate places to
         search next, scored with fitness() by the caller."""
         stale = [c for c in self.area_cells if self._stale(c, now)]
-        return [self._center(c)
-                for c in random.sample(stale, min(count, len(stale)))]
+        if not self.risk:
+            picked = random.sample(stale, min(count, len(stale)))
+        else:
+            # Drawn in proportion to value, so high-risk ground is offered
+            # to PSO as a goal more often than its share of the area.
+            picked = set(random.choices(
+                stale, weights=[self.value(c) for c in stale],
+                k=count)) if stale else set()
+        return [self._center(c) for c in picked]
 
     def explored_fraction(self, now):
         fresh = sum(1 for c in self.area_cells if not self._stale(c, now))

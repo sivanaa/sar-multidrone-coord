@@ -23,7 +23,7 @@ from coordination_msgs.srv import DetectTarget
 from coordination_node.pso import ParticleSwarmSearch
 from coordination_node.cbba import (
     BATTERY_RESERVE, UNASSIGNED, CbbaAgent, Task, battery_value_scale)
-from coordination_node.coverage import CoverageMap, path_clearance
+from coordination_node.coverage import CoverageMap, load_risk_map, path_clearance
 from coordination_node.navigate import step_toward
 from coordination_node.offboard_sequence import offboard_request
 from coordination_node.separation import (
@@ -104,11 +104,8 @@ def make_coverage_fitness(area_center, area_radius):
     drones running infinitely far apart in the unbounded case; they are a
     soft mission-area bound, not a hard fence.
 
-    TODO: replace with the flood-risk-weighted scoring already used by the
-    single-drone GPS routing (edge-ai-gateway), once that scoring is
-    exposed to this node. Nearest-neighbor spread is a reasonable
-    placeholder for "don't duplicate another drone's search effort," but it
-    still has no idea where a target is actually likely to be.
+    Nearest-neighbor spread has no idea where a target is likely to be;
+    the node's own search (coverage.py) now weights cells by flood risk.
     """
     center_x, center_y = area_center
 
@@ -176,6 +173,10 @@ class CoordinationNode(Node):
         # in ~15s, then continuous revisits) without parking.
         self.declare_parameter('sensor_radius', 1.5)
         self.declare_parameter('revisit_after_s', 60.0)
+        # Flood-risk map (coverage.load_risk_map format) weighting the
+        # search toward high-risk ground; '' = every cell equal. Every drone
+        # in a fleet should get the same file.
+        self.declare_parameter('risk_map_file', '')
         self.declare_parameter('use_px4_position', False)
         self.declare_parameter('use_px4_offboard', False)
         self.declare_parameter('hold_altitude', 3.0)
@@ -210,7 +211,8 @@ class CoordinationNode(Node):
         self.coverage = CoverageMap(
             area_center, area_radius,
             sensor_radius=self.get_parameter('sensor_radius').value,
-            revisit_after_s=self.get_parameter('revisit_after_s').value)
+            revisit_after_s=self.get_parameter('revisit_after_s').value,
+            risk=self._load_risk_map())
         self._own_xy = (init_x, init_y)  # where this drone is, for path checks
         self._home = (init_x, init_y)  # where it goes to land on low battery
         self._battery_remaining = None  # 0-1 from PX4; None = unknown/no PX4
@@ -286,6 +288,28 @@ class CoordinationNode(Node):
             f'coordination_node up: drone_id={self.drone_id} '
             f'num_drones={self.num_drones}'
         )
+
+    def _load_risk_map(self):
+        path = self.get_parameter('risk_map_file').value
+        if not path:
+            return None
+        try:
+            cell_size, risk = load_risk_map(path)
+        except (OSError, ValueError, KeyError) as exc:
+            self.get_logger().error(
+                f'risk_map_file {path} unreadable ({exc}) - searching '
+                'without flood risk.')
+            return None
+        if cell_size != 1.0:  # CoverageMap's cells are 1m
+            self.get_logger().error(
+                f'risk map cell size {cell_size}m, search grid is 1m - '
+                'searching without flood risk.')
+            return None
+        high = sum(1 for r in risk.values() if r >= 0.5)
+        self.get_logger().info(
+            f'flood risk map {path}: {len(risk)} cells, {high} high-risk '
+            '(>= 0.5).')
+        return risk
 
     # ---- PX4 real position (optional) --------------------------------------
 
