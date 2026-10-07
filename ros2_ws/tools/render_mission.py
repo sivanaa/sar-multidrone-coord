@@ -337,6 +337,27 @@ class Renderer:
                '○ PSO search goal', font=self.f_small, fill=MUTED)
 
 
+def fixed_palette():
+    """One GIF palette for every frame, built from the design colours and
+    the blends actually drawn. Per-frame adaptive palettes (the first
+    version) drifted: drone 0 went teal and drone 1 brown in later frames
+    of a live run, as the map's blues and teals crowded them out."""
+    colors = [BG, INK, MUTED, GRID, AREA_EDGE, UNEXPLORED, EXPLORED, RISK, RIVER,
+              PENDING, ALERT, (255, 255, 255), (27, 175, 122)] + DRONE_COLORS
+    for r in range(6):                  # map cells: risk x freshness
+        unsearched = mix(UNEXPLORED, RISK, 0.6 * r / 5)
+        searched = mix(EXPLORED, RISK, 0.35 * r / 5)
+        colors += [mix(searched, unsearched, a / 9) for a in range(10)]
+    for c in DRONE_COLORS + [INK, PENDING, ALERT, RISK, RIVER, (27, 175, 122)]:
+        colors += [mix(c, BG, f / 11) for f in range(1, 12)]   # trails, text edges
+        colors += [mix(c, (255, 255, 255), f / 5) for f in range(1, 5)]
+    colors = list(dict.fromkeys(colors))[:256]
+    flat = [v for c in colors for v in c] + [0] * (3 * (256 - len(colors)))
+    pal = Image.new('P', (1, 1))
+    pal.putpalette(flat)
+    return pal
+
+
 def main():
     p = argparse.ArgumentParser()
     p.add_argument('log')
@@ -362,13 +383,13 @@ def main():
     if a.frames_dir:
         os.makedirs(a.frames_dir, exist_ok=True)
 
+    palette = fixed_palette()
     frames = []
     for i, t in enumerate(times):
         img = renderer.frame(t)
         if a.frames_dir:
             img.save(os.path.join(a.frames_dir, f'{i:05d}.png'))
-        frames.append(img.quantize(colors=128, method=Image.Quantize.MEDIANCUT
-                                   if hasattr(Image, 'Quantize') else 0))
+        frames.append(img.quantize(palette=palette, dither=0))
         if i % 50 == 0:
             print(f'frame {i}/{len(times)}  t={t:.1f}s', flush=True)
     hold = [frames[-1]] * int(a.fps * 2)   # linger on the final state
