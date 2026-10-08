@@ -413,7 +413,8 @@ own "next report" scope:**
   Checked against the code: it doesn't. `edge-ai-gateway`
   (github.com/basilrari/edge-ai-gateway) is an LLM command router — it
   forwards `flood_seg`/`flood_class` to a `detect_flood` tool on the Model
-  Server (`Drone_LLM`, not public, not on the gpu server) and missions are
+  Server (`Drone_LLM`, not on the gpu server; public as
+  github.com/basilrari/edge-ai-modelserver, see below) and missions are
   plain waypoint uploads; there is no risk map or route scoring to reuse.
   So the weighting is built to take a risk map from whatever source exists:
   - **Risk map** (`coverage.load_risk_map`): JSON `{"cell_size": 1.0,
@@ -435,6 +436,49 @@ own "next report" scope:**
     still 100% covered; worst separation 1.56m.
   - **Live**: `sim.sh demo-flood` (recorded; `sim.sh render` draws the
     risk layer and a "flood-risk ground searched" figure).
+
+  **Flood model output → risk map — 2026-10-08.** The Model Server turned
+  out to be public: github.com/basilrari/edge-ai-modelserver (commit
+  9b6a8fc, 2026-09-14) is the same FastAPI `POST /tool` service the gateway
+  calls. Read from its code (`tools/detect_flood.py`, `core/flood_grid.py`,
+  `core/gps_locator.py`, `core/context_evaluator.py`):
+  - `detect_flood` runs a ResNet18 flooded/dry classifier, then a DeepLabv3+
+    water mask (256px) only when the frame looks flooded. **The mask is not
+    returned**: the response carries the whole-frame `flood_ratio` and a
+    4×4 grid of per-cell water fractions (`grid.cell_ratios`, row 0 = image
+    top), or no grid when the frame is dry or no cell reaches 0.3.
+  - Camera: GoPro Linear, 87° HFOV, 1920×1080, gimbal straight down,
+    flat-ground pinhole projection — usable as is.
+  - **Pose is mocked**: drone GPS is hardcoded (Chittur, Kerala), heading
+    0, altitude `random.uniform(5, 50)`; every result says
+    `"simulated": true`. Its GPS fields cannot be used, so the pose has to
+    come from us (PX4 telemetry when the frame is requested).
+  - No model weights and no license file in the repo — we read it, we
+    don't copy from it; the projection is re-derived in our code.
+
+  Converter (`coordination_node/flood_grid.py`, `tools/flood_to_risk_map.py`):
+  each 1m map cell whose centre falls inside a frame takes the water fraction
+  of the 4×4 image cell it lands in; overlapping frames are averaged, which
+  sharpens the 4×4 blocks. Input is JSON lines of pose (shared frame, alt,
+  yaw) + raw `detect_flood` response; output is `risk_map_file` format.
+  `--simulate` flies a lawnmower (lanes half a footprint apart) over a
+  synthetic river, builds the grids a perfect mask would give, and scores
+  the result:
+
+  | Altitude | Image grid cell on ground | River width | Mean risk water / dry | IoU (risk ≥ 0.5) |
+  |---|---|---|---|---|
+  | 8m (sim demo area) | ~3.8m | 4m | 0.72 / 0.06 | 0.78 |
+  | 20m | ~9.5m | 4m | 0.31 / 0.02 | 0.00 |
+  | 20m | ~9.5m | 12m | 0.79 / 0.07 | 0.81 |
+  | 50m | ~23.7m | 20m | 0.70 / 0.08 | 0.75 |
+
+  Water narrower than one image grid cell's footprint still ranks well
+  above dry ground (0.31 vs 0.02) but never reaches 0.5 — enough for search
+  weighting, which only needs the ordering. Sharper maps need the mask
+  itself (or a finer grid) from `detect_flood`. Open questions for the
+  model owner: real pose source, real camera mounting, returning the mask,
+  which version runs on the drone, access to weights. Not yet wired live:
+  nothing logs (pose, response) pairs during a flight yet.
 
   **Two more real gaps found via live testing, same day.** Added the
   min-separation readout to `visualize_run.py` specifically because a
@@ -997,7 +1041,9 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    "Search: coverage map"), pending a live run (`sim.sh test-search`).
    Per-cell search value (flood risk) added 2026-10-07 with a synthetic
    map (see "Search: flood-risk weighting"); still open: a real risk
-   source (GIS layer or aggregated `flood_seg` output). The bid function was
+   source (GIS layer or aggregated `flood_seg` output). Converter from
+   `detect_flood`'s 4×4 grid + our pose added 2026-10-08 (see "Flood model
+   output → risk map"); still needs real (pose, response) logs. The bid function was
    replaced the same day and confirmed live (see "Bid function" near the
    top).
 5. **Done 2026-10-06, pending live confirmation** — retry ARM until PX4
