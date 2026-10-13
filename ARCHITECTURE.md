@@ -811,6 +811,20 @@ runs `test-search` N times headless and lists those distances, for
 measuring separation across runs. Run `bash ros2_ws/tools/sim.sh` with no
 arguments for the full list.
 
+**Simulator backends (2026-10-13).** Everything simulator-specific in
+`sim.sh` and `drone_distance.sh` now goes through `tools/backends/$SIM.sh`
+(`SIM=gazebo`, the default, or `SIM=airsim`, a placeholder that refuses
+every call until implemented). A backend defines `backend_world_up`,
+`backend_px4_env N X Y`, `backend_px4_setup N`, `backend_marker X Y R G B`,
+`backend_pose N` and `backend_stop`, all taking and returning positions
+in the shared frame — the ENU swap lives only in `backends/gazebo.sh`.
+Spawn points are one table in `sim.sh` (`SPAWN_X`/`SPAWN_Y`, shared frame)
+used for both the simulator and the nodes' `initial_x`/`initial_y`, so the
+two can't disagree. Tests, demos and the coordination node are unchanged
+and run the same on either simulator. `drone_distance.sh` now prints
+shared-frame positions (`drone0 (x, y)`), not Gazebo ones, and takes drone
+ids instead of model names.
+
 **Presenting a run:** `sim.sh demo` flies a three-act scenario (PSO search,
 a 4-target CBBA auction, then a low-battery hand-off) while
 `tools/mission_recorder.py` logs every coordination message and battery

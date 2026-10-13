@@ -1,9 +1,13 @@
 #!/bin/bash
-# One-command two-drone Gazebo runs: everything (Gazebo, both PX4s, both DDS
-# agents, coordination nodes, distance monitor) starts in ONE tmux session
-# called "sim", one window per process, with the per-launch PX4 setup typed
-# into each PX4 shell for you - instead of 7-8 terminals by hand (see
+# One-command two-drone simulator runs: everything (the simulator, both PX4s,
+# both DDS agents, coordination nodes, distance monitor) starts in ONE tmux
+# session called "sim", one window per process, with the per-launch PX4 setup
+# typed into each PX4 shell for you - instead of 7-8 terminals by hand (see
 # ARCHITECTURE.md "Launch sequence" for what each step is and why).
+#
+# Simulator: Gazebo by default; SIM=airsim bash sim.sh ... for AirSim (not
+# implemented yet). Everything simulator-specific is in backends/$SIM.sh;
+# the tests and the coordination nodes are the same for both.
 #
 # Usage, from any WSL terminal:
 #   bash sim.sh demo [--headless]         recorded 3-act run (search, auction, battery
@@ -47,7 +51,19 @@ ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup
 NODE_ARGS="-p num_drones:=2 -p use_px4_offboard:=true -p hold_altitude:=3.0"
 NODE_ARGS+=" -p area_center_x:=4.0 -p area_center_y:=4.0 -p area_radius:=6.0"
 
+# Spawn points, drone N at (SPAWN_X[N], SPAWN_Y[N]) in the fleet's shared
+# frame (drone 0's PX4 local NED frame). Each backend converts them to its
+# own world frame; the nodes get them unchanged as initial_x/initial_y.
+SPAWN_X=(0.0 5.0)
+SPAWN_Y=(0.0 5.0)
+
 say() { echo "[sim] $*"; }
+
+SIM=${SIM:-gazebo}
+BACKEND="$(dirname "$SELF")/backends/$SIM.sh"
+[ -f "$BACKEND" ] || { say "unknown SIM=$SIM (no $BACKEND)"; exit 1; }
+# shellcheck source=backends/gazebo.sh
+source "$BACKEND"
 
 window() {  # window NAME COMMAND - run COMMAND in a new window's own shell,
             # so the window stays open (with any error) if COMMAND exits
@@ -94,29 +110,25 @@ down() {
     sleep 2
     tmux kill-session -t "$SESSION"
   fi
-  pkill -f "gz sim"; pkill -f MicroXRCEAgent; pkill -f "px4_sitl_default/bin/px4"
+  backend_stop; pkill -f MicroXRCEAgent; pkill -f "px4_sitl_default/bin/px4"
   pkill -f coordination_node; pkill -f "ros2 topic pub"
   sleep 2
   say "stopped."
 }
 
 up() {
-  local headless="" n i
+  local headless="" n env
   [ "${1:-}" = "--headless" ] && headless="--headless"
   down
   tmux new-session -d -s "$SESSION" -n shell -x 220 -y 50
 
-  say "starting Gazebo (shared world - must be up before any PX4)..."
-  window gz "cd $PX4 && export GZ_SIM_SYSTEM_PLUGIN_PATH=$PX4/build/px4_sitl_default/src/modules/simulation/gz_plugins && python3 Tools/simulation/gz/simulation-gazebo $headless"
-  for ((i = 0; i < 120; i++)); do
-    gz topic -l 2>/dev/null | grep -q '^/world/default/clock' && break
-    sleep 1
-  done
-  [ "$i" -ge 120 ] && { say "Gazebo didn't come up in 120s - look at window gz (bash $SELF attach)."; return 1; }
+  say "starting $BACKEND_NAME (shared world - must be up before any PX4)..."
+  backend_world_up $headless || return 1
 
   for n in 0 1; do
     say "starting PX4 instance $n..."
-    window "px4_$n" "cd $PX4 && PX4_UXRCE_DDS_PORT=$((8888 + n)) PX4_SYS_AUTOSTART=4001 PX4_SIMULATOR=gz PX4_GZ_MODEL_POSE=$((5 * n)),$((5 * n)) PX4_GZ_MODEL=x500 ./build/px4_sitl_default/bin/px4 -i $n"
+    env=$(backend_px4_env "$n" "${SPAWN_X[n]}" "${SPAWN_Y[n]}") || return 1
+    window "px4_$n" "cd $PX4 && PX4_UXRCE_DDS_PORT=$((8888 + n)) $env ./build/px4_sitl_default/bin/px4 -i $n"
     wait_for "px4_$n" 'pxh>' 90 || { say "PX4 $n didn't start - look at window px4_$n."; return 1; }
     window "agent$n" "$AGENT udp4 -p $((8888 + n))"
   done
@@ -125,7 +137,7 @@ up() {
   # "Required in each PX4 shell after every launch").
   for n in 0 1; do
     tmux send-keys -t "$SESSION:px4_$n" "param set NAV_DLL_ACT 0" Enter
-    tmux send-keys -t "$SESSION:px4_$n" "sensor_baro_sim start" Enter
+    backend_px4_setup "$n"
     # PX4 SITL saves every `param set` to its parameters.bson and loads it
     # on the next launch, so the battery tests' settings would leak into
     # later runs (drone 1 booted draining to 20% and hit reserve before
@@ -140,12 +152,12 @@ up() {
   say "sim is up."
 }
 
-node() {  # node N INITIAL_X INITIAL_Y [EXTRA ROS ARGS for this drone only]
-  window "coord$1" "$ROS_ENV && ros2 run coordination_node coordination_node --ros-args -p drone_id:=$1 -p initial_x:=$2 -p initial_y:=$3 $NODE_ARGS ${NODE_EXTRA:-} ${4:-}"
+node() {  # node N [EXTRA ROS ARGS for this drone only] - starts at its spawn point
+  window "coord$1" "$ROS_ENV && ros2 run coordination_node coordination_node --ros-args -p drone_id:=$1 -p initial_x:=${SPAWN_X[$1]} -p initial_y:=${SPAWN_Y[$1]} $NODE_ARGS ${NODE_EXTRA:-} ${2:-}"
 }
 
 distance_window() {
-  window dist "bash $REPO/ros2_ws/tools/drone_distance.sh"
+  window dist "SIM=$SIM bash $REPO/ros2_ws/tools/drone_distance.sh"
 }
 
 wait_airborne() {  # wait_airborne N
@@ -160,19 +172,16 @@ detect() {  # detect X Y [N] [TYPE]
   bash -c "$ROS_ENV && ros2 service call /drone_${3:-0}/coordination/detect_target coordination_msgs/srv/DetectTarget '{position: {x: $1, y: $2, z: 0.0}, target_type: ${4:-person}, confidence: 0.9}'" | tail -1
 }
 
-marker() {  # marker X Y [R G B] - shared frame, so Gazebo pose is (Y, X)
-  local rgb="${3:-1} ${4:-0} ${5:-0}" name="marker_$(date +%s%N)"
-  local sdf="<?xml version='1.0'?><sdf version='1.9'><model name='$name'><static>true</static><pose>$2 $1 0.5 0 0 0</pose><link name='l'><visual name='v'><geometry><cylinder><radius>0.3</radius><length>1</length></cylinder></geometry><material><ambient>$rgb 1</ambient><diffuse>$rgb 1</diffuse></material></visual></link></model></sdf>"
-  gz service -s /world/default/create --reqtype gz.msgs.EntityFactory \
-    --reptype gz.msgs.Boolean --timeout 3000 --req "sdf: \"$sdf\"" >/dev/null \
+marker() {  # marker X Y [R G B] - visual-only, shared frame
+  backend_marker "$1" "$2" "${3:-1}" "${4:-0}" "${5:-0}" \
     || say "marker at ($1, $2) failed (cosmetic only - carrying on)"
 }
 
 test_b() {
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-b
-  node 0 0.0 0.0
-  node 1 5.0 5.0
+  node 0
+  node 1
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
   marker 3 4 1 0 0
@@ -187,8 +196,8 @@ test_b() {
 test_search() {
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-search
-  node 0 0.0 0.0
-  node 1 5.0 5.0
+  node 0
+  node 1
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
   say "both searching - watch windows coord0/coord1 ('searching: at ..., area explored ...')."
@@ -206,8 +215,8 @@ test_search() {
 test_bids() {
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-bids
-  node 0 0.0 0.0
-  node 1 5.0 5.0
+  node 0
+  node 1
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
   say "both searching for 15s..."
@@ -226,8 +235,8 @@ demo() {  # the whole hybrid approach in one recorded run, for presenting
   tmux set-environment -t "$SESSION" RUN_NAME demo
   mkdir -p "$RUNS"
   window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
-  node 0 0.0 0.0
-  node 1 5.0 5.0
+  node 0
+  node 1
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
 
@@ -255,8 +264,8 @@ demo_flood() {  # search weighted by a synthetic flood-risk map, recorded
   python3 "$REPO/ros2_ws/tools/make_risk_map.py" "$RISK_MAP" || return 1
   window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
   NODE_EXTRA="-p risk_map_file:=$RISK_MAP"
-  node 0 0.0 0.0
-  node 1 5.0 5.0
+  node 0
+  node 1
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
 
@@ -290,8 +299,8 @@ test_battery() {
   # empty while armed, SIM_BAT_MIN_PCT = where it stops. A fast drain makes
   # drone 1's battery follow MIN_PCT within seconds of each change.
   tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_DRAIN 20" Enter
-  node 0 0.0 0.0
-  node 1 5.0 5.0
+  node 0
+  node 1
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
   say "both searching for 15s (batteries at 50% = full-strength bids)..."
@@ -311,8 +320,8 @@ test_battery() {
 test_handoff() {
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-handoff
-  node 0 0.0 0.0
-  node 1 5.0 5.0
+  node 0
+  node 1
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
   say "both searching for 15s..."
@@ -337,8 +346,8 @@ test_x() {  # both drones flying, paths crossing head-on, twice
   # CBBA never picks crossing paths on distance alone (swapping two
   # crossing assignments is always shorter), so each drone may only take
   # its own target type: x0 for drone 0, x1 for drone 1.
-  node 0 0.0 0.0 "-p task_types:=x0"
-  node 1 5.0 5.0 "-p task_types:=x1"
+  node 0 "-p task_types:=x0"
+  node 1 "-p task_types:=x1"
   distance_window
   wait_airborne 0 && wait_airborne 1 || return 1
 
@@ -371,7 +380,7 @@ repeat_search() {  # repeat_search N SECONDS [TEST] - for measuring separation
 }
 
 test_c() {
-  local gx gy i
+  local sx sy i
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-c
 
@@ -387,13 +396,13 @@ test_c() {
     || { say "drone 1 won't take off - look at window px4_1."; return 1; }
   sleep 8
 
-  # Tell drone 0 where drone 1 really is (Gazebo (x,y) = shared (y,x)).
-  read -r gx gy _ <<< "$(gz model -m x500_1 -p 2>/dev/null | grep -A1 XYZ | tail -1 | tr -d '[]')"
-  [ -z "$gx" ] && { say "couldn't read drone 1's position from Gazebo."; return 1; }
-  say "drone 1 hovering at shared ($gy, $gx)"
-  window drone1_pos "$ROS_ENV && ros2 topic pub -r 2 /drone_1/coordination/agent_state coordination_msgs/msg/AgentState \"{drone_id: 1, position: {x: $gy, y: $gx, z: 0.0}, best_position: {x: $gy, y: $gx, z: 0.0}, best_fitness: 0.0, state: 0}\""
+  # Tell drone 0 where drone 1 really is.
+  read -r sx sy <<< "$(backend_pose 1)"
+  [ -z "$sx" ] && { say "couldn't read drone 1's position from $BACKEND_NAME."; return 1; }
+  say "drone 1 hovering at shared ($sx, $sy)"
+  window drone1_pos "$ROS_ENV && ros2 topic pub -r 2 /drone_1/coordination/agent_state coordination_msgs/msg/AgentState \"{drone_id: 1, position: {x: $sx, y: $sy, z: 0.0}, best_position: {x: $sx, y: $sy, z: 0.0}, best_fitness: 0.0, state: 0}\""
 
-  node 0 0.0 0.0
+  node 0
   distance_window
   wait_airborne 0 || return 1
   marker 10 10 0 1 0
@@ -404,7 +413,7 @@ test_c() {
 
 case "${1:-}" in
   up) shift; up "$@" ;;
-  nodes) node 0 0.0 0.0; node 1 5.0 5.0; distance_window; say "nodes started." ;;
+  nodes) node 0; node 1; distance_window; say "nodes started." ;;
   test-search) shift; test_search "$@" ;;
   test-bids) shift; test_bids "$@" ;;
   test-battery) shift; test_battery "$@" ;;
