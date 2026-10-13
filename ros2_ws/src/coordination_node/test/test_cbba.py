@@ -137,3 +137,31 @@ def test_a_target_another_drone_finished_is_never_held_or_won_again():
     assert holder.bundle == [] and holder.path == []
     assert holder.build_bundle((0.0, 0.0)) == []
     assert holder.learn_completed([1]) == []        # not news twice
+
+
+def test_task_types_force_the_crossing_assignment():
+    # Each target sits beyond the OTHER drone, so on distance alone each
+    # drone takes the one behind itself and nobody crosses. Restricting
+    # types makes them swap ends, which is what sim.sh test-x relies on.
+    ne = Task(1, (9.0, 9.0), 'x0', 0.9)
+    sw = Task(2, (-4.0, -4.0), 'x1', 0.9)
+    agents = [CbbaAgent(0, task_types=['x0']), CbbaAgent(1, task_types=['x1'])]
+    starts = [(0.0, 0.0), (5.0, 5.0)]
+    for agent in agents:
+        agent.add_task(ne)
+        agent.add_task(sw)
+    assert agents[0].bid_for(sw, starts[0]) == 0.0
+    for _ in range(3):
+        for agent, start in zip(agents, starts):
+            agent.build_bundle(start)
+        states = [(a.drone_id, [1, 2], [a.winning_bids[t] for t in (1, 2)],
+                   [a.winning_agent[t] for t in (1, 2)],
+                   [a.update_time[t] for t in (1, 2)]) for a in agents]
+        agents[0].receive_bundle_state(*states[1])
+        agents[1].receive_bundle_state(*states[0])
+    assert agents[0].bundle == [1] and agents[1].bundle == [2]
+
+
+def test_no_task_types_means_any_type():
+    agent = _agent(0, Task(1, (1.0, 0.0), 'anything', 0.9))
+    assert agent.build_bundle((0.0, 0.0)) == [1]

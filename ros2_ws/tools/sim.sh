@@ -19,16 +19,17 @@
 #                                    hands them to drone 0, flies home, lands
 #   bash sim.sh test-b [--headless]  normal spawn, both nodes, two targets
 #   bash sim.sh test-c [--headless]  head-on crossing: drone 1 hovers in drone 0's path
+#   bash sim.sh test-x [--headless]  both drones fly through each other's paths head-on, twice
 #   bash sim.sh up [--headless]      just the sim (Gazebo, PX4 x2, agents), no nodes
 #   bash sim.sh nodes                both coordination nodes + distance monitor
-#   bash sim.sh detect X Y [N]       target at shared-frame (X,Y), seen by drone N (default 0)
+#   bash sim.sh detect X Y [N] [TYPE] target at shared-frame (X,Y), seen by drone N (default 0)
 #   bash sim.sh marker X Y [R G B]   visual-only marker at shared-frame (X,Y)
 #   bash sim.sh distance             live drone distance, in this terminal
 #   bash sim.sh attach               look at the windows (Ctrl+b w = pick a window,
 #                                    Ctrl+b d = leave; everything keeps running)
 #   bash sim.sh down                 save every window's log to ~/sim_runs/, print the
 #                                    closest drone-to-drone distance, stop everything
-#   bash sim.sh repeat N [SECONDS]   run test-search N times headless, SECONDS each
+#   bash sim.sh repeat N [SECONDS] [TEST]  run TEST (default test-search) N times headless, SECONDS each
 #                                    (default 120), and list the closest distances
 #
 # Paths below are this WSL machine's (see ARCHITECTURE.md) - adjust if yours differ.
@@ -139,8 +140,8 @@ up() {
   say "sim is up."
 }
 
-node() {  # node N INITIAL_X INITIAL_Y
-  window "coord$1" "$ROS_ENV && ros2 run coordination_node coordination_node --ros-args -p drone_id:=$1 -p initial_x:=$2 -p initial_y:=$3 $NODE_ARGS ${NODE_EXTRA:-}"
+node() {  # node N INITIAL_X INITIAL_Y [EXTRA ROS ARGS for this drone only]
+  window "coord$1" "$ROS_ENV && ros2 run coordination_node coordination_node --ros-args -p drone_id:=$1 -p initial_x:=$2 -p initial_y:=$3 $NODE_ARGS ${NODE_EXTRA:-} ${4:-}"
 }
 
 distance_window() {
@@ -154,9 +155,9 @@ wait_airborne() {  # wait_airborne N
   sleep 4  # finish climbing before handing out targets
 }
 
-detect() {  # detect X Y [N]
-  say "target at ($1, $2), detected by drone ${3:-0}"
-  bash -c "$ROS_ENV && ros2 service call /drone_${3:-0}/coordination/detect_target coordination_msgs/srv/DetectTarget '{position: {x: $1, y: $2, z: 0.0}, target_type: person, confidence: 0.9}'" | tail -1
+detect() {  # detect X Y [N] [TYPE]
+  say "target at ($1, $2), detected by drone ${3:-0}${4:+, type $4}"
+  bash -c "$ROS_ENV && ros2 service call /drone_${3:-0}/coordination/detect_target coordination_msgs/srv/DetectTarget '{position: {x: $1, y: $2, z: 0.0}, target_type: ${4:-person}, confidence: 0.9}'" | tail -1
 }
 
 marker() {  # marker X Y [R G B] - shared frame, so Gazebo pose is (Y, X)
@@ -330,13 +331,38 @@ test_handoff() {
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
 }
 
-repeat_search() {  # repeat_search N SECONDS - for measuring separation
-  local n=${1:-3} secs=${2:-120} i before
+test_x() {  # both drones flying, paths crossing head-on, twice
+  up "$@" || return 1
+  tmux set-environment -t "$SESSION" RUN_NAME test-x
+  # CBBA never picks crossing paths on distance alone (swapping two
+  # crossing assignments is always shorter), so each drone may only take
+  # its own target type: x0 for drone 0, x1 for drone 1.
+  node 0 0.0 0.0 "-p task_types:=x0"
+  node 1 5.0 5.0 "-p task_types:=x1"
+  distance_window
+  wait_airborne 0 && wait_airborne 1 || return 1
+
+  say "crossing 1: drone 0 -> red (9, 9), drone 1 -> green (-4, -4), head-on along the diagonal."
+  marker 9 9 1 0 0; marker -4 -4 0 1 0
+  detect 9 9 0 x0; detect -4 -4 1 x1
+  wait_for coord0 'reached target' 60 && wait_for coord1 'reached target' 60 \
+    || say "a drone didn't report reaching its target in 60s - carrying on."
+
+  say "crossing 2: back the other way - drone 0 -> red (-1, -1), drone 1 -> green (10, 10)."
+  marker -1 -1 1 0 0; marker 10 10 0 1 0
+  detect -1 -1 0 x0; detect 10 10 1 x1
+  say "pass: both reach their targets twice, closest distance stays >= 1.5m."
+  say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
+}
+
+repeat_search() {  # repeat_search N SECONDS [TEST] - for measuring separation
+  local n=${1:-3} secs=${2:-120} test=${3:-test-search} i before
+  test=${test//-/_}
   mkdir -p "$RUNS" && touch "$RUNS/summary.txt"
   before=$(wc -l < "$RUNS/summary.txt")
   for ((i = 1; i <= n; i++)); do
     say "=== run $i of $n ==="
-    test_search --headless || say "run $i failed to start - its logs are saved too."
+    "$test" --headless || say "run $i failed to start - its logs are saved too."
     sleep "$secs"
     down
   done
@@ -389,6 +415,7 @@ case "${1:-}" in
   repeat) shift; repeat_search "$@" ;;
   test-b) shift; test_b "$@" ;;
   test-c) shift; test_c "$@" ;;
+  test-x) shift; test_x "$@" ;;
   detect) shift; detect "$@" ;;
   marker) shift; marker "$@" ;;
   distance) bash "$REPO/ros2_ws/tools/drone_distance.sh" ;;

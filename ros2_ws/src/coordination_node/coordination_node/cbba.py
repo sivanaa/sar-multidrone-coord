@@ -61,9 +61,15 @@ class CbbaAgent:
     """One drone's CBBA state: its bundle/path, and its belief about every
     task it currently knows about (winning bids/agents/timestamps)."""
 
-    def __init__(self, drone_id, max_bundle_size=3):
+    def __init__(self, drone_id, max_bundle_size=3, task_types=None):
         self.drone_id = drone_id
         self.max_bundle_size = max_bundle_size
+        # Target types this drone can handle (e.g. only a drone carrying a
+        # float can take a 'drop' task); None = any. A drone never bids on
+        # a task it can't do, so CBBA's usual rules hand it to one that
+        # can. Also how sim tests force an assignment CBBA would never
+        # pick on distance alone, like two drones crossing paths.
+        self.task_types = set(task_types) if task_types else None
 
         self.tasks = {}          # task_id -> Task
         self.bundle = []         # committed task_ids, insertion order
@@ -86,6 +92,10 @@ class CbbaAgent:
             self.winning_bids.setdefault(task.task_id, 0.0)
             self.winning_agent.setdefault(task.task_id, UNASSIGNED)
             self.update_time.setdefault(task.task_id, time.time())
+
+    def can_do(self, task):
+        """Whether this drone can handle `task`'s target type at all."""
+        return self.task_types is None or task.target_type in self.task_types
 
     def path_value(self, path, current_position):
         """Time-discounted value of flying `path` (task ids) in order."""
@@ -115,6 +125,8 @@ class CbbaAgent:
         (`value_scale`)."""
         if task.task_id in self.path:
             return self.winning_bids.get(task.task_id, 0.0)
+        if not self.can_do(task):
+            return 0.0
         return self._best_insertion(task, current_position)[0]
 
     def mark_task_done(self, task_id):
@@ -152,7 +164,8 @@ class CbbaAgent:
             best_bid = 0.0
             best_index = 0
             for task_id, task in self.tasks.items():
-                if task_id in self.bundle or task_id in self.completed_task_ids:
+                if (task_id in self.bundle or task_id in self.completed_task_ids
+                        or not self.can_do(task)):
                     continue
                 bid, index = self._best_insertion(task, current_position)
                 if self._outbids(task_id, bid) and bid > best_bid:

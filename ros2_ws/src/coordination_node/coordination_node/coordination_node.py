@@ -27,7 +27,7 @@ from coordination_node.coverage import CoverageMap, load_risk_map, path_clearanc
 from coordination_node.navigate import step_toward
 from coordination_node.offboard_sequence import offboard_request
 from coordination_node.separation import (
-    constrain_setpoint, enforce_min_separation)
+    brake_limit, constrain_setpoint, enforce_min_separation, with_predictions)
 
 MIN_SEPARATION_M = 1.5  # must match pso.py's default; see separation.py
 # Floor applied to real-vehicle *setpoints*, deliberately above
@@ -43,6 +43,16 @@ SETPOINT_MIN_SEPARATION_M = MIN_SEPARATION_M + 0.3
 # (head-on stall, dry run 2026-10-06). 2.5m gets past a neighbor dead ahead
 # in ~8s instead of ~24s.
 SETPOINT_AVOID_RADIUS_M = 2.5
+# Moving neighbors (separation.py with_predictions / brake_limit): avoid
+# where a neighbor will be NEIGHBOR_LOOKAHEAD_S ahead as well as where it
+# is, and close on it no faster than braking at BRAKE_DECEL_MPS2 allows.
+# SETPOINT_LEAD_S is how far ahead navigate.py/pso.py put the setpoint
+# (one 0.5s tick of velocity). Dry run of test-x with PX4 lag modeled to
+# match the live 1.24m: head-on 1.18-1.37m -> 1.81m+, perpendicular
+# 1.15m -> 1.78m+, hovering neighbor (test C) unchanged and still reached.
+NEIGHBOR_LOOKAHEAD_S = 0.5
+BRAKE_DECEL_MPS2 = 2.0
+SETPOINT_LEAD_S = 0.5
 ARRIVAL_RADIUS_M = 0.3  # must match navigate.py's step_toward default
 
 # Search (see coverage.py). A search goal whose straight path passes within
@@ -177,6 +187,10 @@ class CoordinationNode(Node):
         # search toward high-risk ground; '' = every cell equal. Every drone
         # in a fleet should get the same file.
         self.declare_parameter('risk_map_file', '')
+        # Comma-separated target types this drone can take (cbba.py's
+        # task_types), e.g. 'person,drop'; '' = any. sim.sh test-x uses it
+        # to give each drone a target only it may take.
+        self.declare_parameter('task_types', '')
         self.declare_parameter('use_px4_position', False)
         self.declare_parameter('use_px4_offboard', False)
         self.declare_parameter('hold_altitude', 3.0)
@@ -208,6 +222,8 @@ class CoordinationNode(Node):
         self.state = STATE_SEARCH
         self.neighbor_best = {}  # drone_id -> ((x, y), fitness): its search goal
         self.neighbor_position = {}  # drone_id -> (x, y)
+        self.neighbor_velocity = {}  # drone_id -> (vx, vy), from broadcasts
+        self._neighbor_fix = {}  # drone_id -> ((x, y), stamp s) last used for velocity
         self.coverage = CoverageMap(
             area_center, area_radius,
             sensor_radius=self.get_parameter('sensor_radius').value,
@@ -222,7 +238,10 @@ class CoordinationNode(Node):
             initial_position=(init_x, init_y),
             fitness_fn=self._search_fitness,
         )
-        self.cbba = CbbaAgent(drone_id=self.drone_id)
+        task_types = [t.strip() for t in
+                      self.get_parameter('task_types').value.split(',')
+                      if t.strip()]
+        self.cbba = CbbaAgent(drone_id=self.drone_id, task_types=task_types)
 
         # Real PX4 telemetry, when enabled, overrides PSO's internally
         # integrated position each tick (see pso.py's `step`). None until
@@ -518,9 +537,12 @@ class CoordinationNode(Node):
         commanded = self._commanded_xy
         if self._real_position is not None:
             commanded = constrain_setpoint(
+                commanded, self._real_position, self._floor_neighbors(),
+                SETPOINT_MIN_SEPARATION_M)
+            commanded = brake_limit(
                 commanded, self._real_position,
                 list(self.neighbor_position.values()),
-                SETPOINT_MIN_SEPARATION_M)
+                SETPOINT_MIN_SEPARATION_M, BRAKE_DECEL_MPS2, SETPOINT_LEAD_S)
 
         # Shared frame -> this vehicle's own PX4 local frame.
         origin_x, origin_y = self._px4_frame_origin
@@ -596,7 +618,37 @@ class CoordinationNode(Node):
     def _on_agent_state(self, msg: AgentState):
         self.neighbor_best[msg.drone_id] = (
             (msg.best_position.x, msg.best_position.y), msg.best_fitness)
-        self.neighbor_position[msg.drone_id] = (msg.position.x, msg.position.y)
+        position = (msg.position.x, msg.position.y)
+        stamp = msg.stamp.sec + msg.stamp.nanosec * 1e-9
+        previous = self._neighbor_fix.get(msg.drone_id)
+        velocity = (0.0, 0.0)
+        if previous is not None and 0.05 <= stamp - previous[1] <= 1.0:
+            dt = stamp - previous[1]
+            velocity = ((position[0] - previous[0][0]) / dt,
+                        (position[1] - previous[0][1]) / dt)
+        if previous is None or stamp - previous[1] >= 0.05:
+            # 10Hz broadcasts, plus the 2Hz _tick's: skip the near-duplicate
+            # rather than divide its tiny step by a tiny dt.
+            self._neighbor_fix[msg.drone_id] = (position, stamp)
+            self.neighbor_velocity[msg.drone_id] = velocity
+        self.neighbor_position[msg.drone_id] = position
+
+    def _floor_neighbors(self):
+        """Neighbor positions for the real-vehicle collision floor and
+        steering: where each one is, and where it will be shortly (see
+        separation.py's with_predictions)."""
+        return with_predictions(
+            [(p, self.neighbor_velocity.get(d, (0.0, 0.0)))
+             for d, p in self.neighbor_position.items()],
+            NEIGHBOR_LOOKAHEAD_S)
+
+    def _steering_neighbors(self):
+        """Neighbors for navigate.py's soft steering: predicted too when
+        flying a real vehicle, as the floor is; simulated-only runs keep
+        plain positions (that mode has no tracking lag to predict past)."""
+        if self.use_px4_offboard:
+            return self._floor_neighbors()
+        return list(self.neighbor_position.values())
 
     def _now_s(self):
         return self.get_clock().now().nanoseconds / 1e9
@@ -844,7 +896,7 @@ class CoordinationNode(Node):
             self.pso.state.position, self._home, dt,
             max_speed=self.pso.max_speed, arrival_radius=ARRIVAL_RADIUS_M,
             real_position=self._real_position,
-            neighbor_positions=list(self.neighbor_position.values()),
+            neighbor_positions=self._steering_neighbors(),
             min_separation=(SETPOINT_AVOID_RADIUS_M if self.use_px4_offboard
                             else MIN_SEPARATION_M))
         self.pso.state.position = (tracked_x, tracked_y)
@@ -875,7 +927,7 @@ class CoordinationNode(Node):
             if self.use_px4_offboard:
                 self._commanded_xy = constrain_setpoint(
                     self._commanded_xy, self._real_position,
-                    list(self.neighbor_position.values()),
+                    self._floor_neighbors(),
                     SETPOINT_MIN_SEPARATION_M)
             return
         self.pso.state.position = enforce_min_separation(
@@ -904,7 +956,7 @@ class CoordinationNode(Node):
             self.pso.state.position, task.position, dt,
             max_speed=self.pso.max_speed, arrival_radius=ARRIVAL_RADIUS_M,
             real_position=self._real_position,
-            neighbor_positions=list(self.neighbor_position.values()),
+            neighbor_positions=self._steering_neighbors(),
             min_separation=(SETPOINT_AVOID_RADIUS_M if self.use_px4_offboard
                             else MIN_SEPARATION_M))
         self.pso.state.position = (tracked_x, tracked_y)

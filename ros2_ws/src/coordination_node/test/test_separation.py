@@ -1,6 +1,7 @@
 import math
 
-from coordination_node.separation import constrain_setpoint
+from coordination_node.separation import (
+    brake_limit, constrain_setpoint, with_predictions)
 
 MIN_SEP = 1.5
 
@@ -77,3 +78,31 @@ def test_head_on_crossing_reaches_target_without_stalling():
             break
     assert _dist(position, target) <= 0.3
     assert closest >= MIN_SEP
+
+
+def test_stationary_neighbor_has_no_predicted_point():
+    assert with_predictions([((1.0, 2.0), (0.0, 0.0))], 0.5) == [(1.0, 2.0)]
+
+
+def test_moving_neighbor_is_avoided_where_it_is_going_too():
+    points = with_predictions([((0.0, 0.0), (2.0, -1.0))], 0.5)
+    assert points == [(0.0, 0.0), (1.0, -0.5)]
+
+
+def test_far_neighbor_does_not_limit_the_setpoint():
+    assert brake_limit((1.5, 0.0), (0.0, 0.0), [(20.0, 0.0)],
+                       1.8, 2.0, 0.5) == (1.5, 0.0)
+
+
+def test_close_neighbor_shortens_reach_toward_it_but_not_sideways():
+    # 3m apart: half of the 1.2m slack is 0.6m -> brake-able speed
+    # sqrt(2 * 2 * 0.6) ~ 1.55 m/s -> ~0.77m reach in 0.5s.
+    result = brake_limit((1.5, 1.0), (0.0, 0.0), [(3.0, 0.0)],
+                         1.8, 2.0, 0.5)
+    assert math.isclose(result[0], math.sqrt(2 * 2.0 * 0.6) * 0.5)
+    assert result[1] == 1.0
+
+
+def test_at_the_floor_no_reach_toward_neighbor_at_all():
+    result = brake_limit((0.5, 0.0), (0.0, 0.0), [(1.8, 0.0)], 1.8, 2.0, 0.5)
+    assert result == (0.0, 0.0)

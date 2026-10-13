@@ -77,3 +77,48 @@ def constrain_setpoint(setpoint, current_position, neighbor_positions,
         sx = nx + min_separation * math.cos(angle)
         sy = ny + min_separation * math.sin(angle)
     return (sx, sy)
+
+
+def with_predictions(neighbors, lookahead_s):
+    """Each neighbor's current position plus where it will be in
+    `lookahead_s` at its current velocity. `neighbors` is a list of
+    ((x, y), (vx, vy)).
+
+    constrain_setpoint against current positions only lets two drones
+    flying at each other each put their setpoint 1.8m from where the other
+    is *now* - the same spot in between, which both then fly into. Live
+    sim.sh test-x, 2026-10-13: head-on at ~2 m/s each, 1.24m apart. Also
+    avoiding the predicted point makes each one stop short of where the
+    other is going."""
+    points = []
+    for (x, y), (vx, vy) in neighbors:
+        points.append((x, y))
+        if vx or vy:
+            points.append((x + vx * lookahead_s, y + vy * lookahead_s))
+    return points
+
+
+def brake_limit(setpoint, current_position, neighbor_positions,
+                min_separation, decel, lead_s):
+    """Cap how far `setpoint` reaches toward each neighbor, so the vehicle
+    approaches no faster than it can brake to a stop in its half of the
+    gap left above `min_separation` (the neighbor brakes in the other half).
+
+    The flight controller flies at roughly (setpoint distance) / `lead_s`,
+    so a speed limit is a reach limit. Sideways reach is untouched, which
+    keeps the slide around a neighbor (constrain_setpoint) working."""
+    sx, sy = setpoint
+    cx, cy = current_position
+    for nx, ny in neighbor_positions:
+        rx, ry = nx - cx, ny - cy
+        distance = math.hypot(rx, ry)
+        if distance == 0:
+            continue
+        ux, uy = rx / distance, ry / distance
+        toward = (sx - cx) * ux + (sy - cy) * uy
+        gap = max(0.0, (distance - min_separation) / 2)
+        max_toward = math.sqrt(2 * decel * gap) * lead_s
+        if toward > max_toward:
+            cut = toward - max_toward
+            sx, sy = sx - ux * cut, sy - uy * cut
+    return (sx, sy)

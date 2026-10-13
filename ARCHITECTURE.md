@@ -4,7 +4,7 @@ Status: **in progress** — core structure and message design are in place and
 now build/run-verified end-to-end (colcon build + live two-drone smoke test,
 2026-09-15); bid function, fitness function, and real telemetry wiring are
 the open work.
-Last updated 2026-10-05.
+Last updated 2026-10-13.
 
 ## Algorithm choice (from the project report)
 
@@ -342,8 +342,41 @@ own "next report" scope:**
 
   **Known limits of the setpoint floor:**
   - ~~Possible head-on stall~~ — confirmed real and fixed 2026-10-06 (Test
-    C above, design points 1 and 3). Only tested against a *hovering*
-    neighbor; two drones crossing while both move is still untested.
+    C above, design points 1 and 3). ~~Only tested against a *hovering*
+    neighbor~~ — both drones moving: see Test X below.
+
+  **Test X — both drones crossing head-on (2026-10-13, `sim.sh test-x`).**
+  CBBA never assigns crossing paths on distance alone (swapping two crossing
+  assignments is always shorter), so the test restricts which targets each
+  drone may take: new node parameter `task_types` (comma-separated, '' =
+  any; `cbba.py` never bids on a type it can't do). Drone 0 takes only `x0`,
+  drone 1 only `x1`; crossing 1 sends them (0,0)→(9,9) and (5,5)→(−4,−4),
+  crossing 2 back along the same diagonal to (−1,−1) and (10,10).
+  - **First live run: 1.24m** (sampled at 1Hz, so the true minimum was
+    likely lower), in crossing 2 — crossing 1 never met, both drones had
+    spread out searching before the targets appeared. Cause: each drone
+    kept its setpoint 1.8m from where the *other* is now, so two drones
+    flying at each other both put their setpoint at the same point in
+    between and flew into it, with no allowance for braking.
+  - **Fix** (`separation.py`, real vehicles only): `with_predictions` —
+    the floor and navigate.py's steering also avoid where each neighbor
+    will be in `NEIGHBOR_LOOKAHEAD_S` (0.5s), with neighbor velocity
+    estimated from its 10Hz AgentState broadcasts; `brake_limit` — the
+    10Hz setpoint may not reach toward a neighbor further than braking at
+    `BRAKE_DECEL_MPS2` (2 m/s²) within half the gap above the floor allows
+    (the neighbor brakes in the other half). Sideways reach is untouched,
+    so the slide around a neighbor still works.
+  - **Dry run** (PX4 modeled as position P-control with acceleration limit
+    and setpoint lag, tuned until the old code reproduced the live
+    1.18–1.37m): head-on 1.18–1.37m → 1.83–1.94m; perpendicular crossing
+    1.15–1.25m → 1.78–1.79m (also failing before, never tested live);
+    hovering neighbor (Test C) 1.73–1.78m → 1.79–1.80m, still arrives;
+    side-by-side same direction unchanged at 2.2m.
+  - **Live, `sim.sh repeat 5 60 test-x`**: closest 1.72 / 2.39 / 1.72 /
+    1.73 / 1.75m, both drones reached both targets in every run (no
+    stall). `drone_distance.sh` now samples at 5Hz instead of 1Hz.
+  - Not yet live-tested: the perpendicular crossing, and `repeat 5 120`
+    test-search with the fix (searching drones use the same floor).
   - ~~Drone returns to its spawn after a task~~ and ~~drones pinned
     together while searching~~ (Tests A and C) — one root cause, fixed
     2026-10-06, see "Search: coverage map" below.
@@ -1055,10 +1088,11 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
    derived from `px4_msgs`' `MESSAGE_VERSION`) reports `ARMING_STATE_ARMED`
    and `NAVIGATION_STATE_OFFBOARD`, then stop for good — so a later PX4
    failsafe (e.g. auto-land) is never fought by re-arming behind its back.
-6. **Partially done 2026-10-06** — crossing-paths test against a hovering
+6. **Done 2026-10-13** — crossing-paths test against a hovering
    neighbor done, stall found and fixed (Test C, see "Hard floor for real
-   vehicles"). Still open: both drones moving through each other's paths,
-   then start AirSim planning: AirSim can run on the same PX4 SITL in place of Gazebo, so the
+   vehicles"); both drones moving through each other's paths found a real
+   gap (1.24m), fixed and confirmed live 5/5 at ≥1.72m (Test X). Next:
+   AirSim planning: AirSim can run on the same PX4 SITL in place of Gazebo, so the
    coordination node's DDS/MAVLink paths should carry over; the real new
    work is a vision → `detect_target` bridge (detection pixel → world
    position via drone pose and camera geometry).

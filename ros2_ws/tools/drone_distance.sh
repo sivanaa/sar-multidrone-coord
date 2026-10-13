@@ -20,5 +20,5 @@ while true; do
     printf '%s (%.2f, %.2f)  %s (%.2f, %.2f)  distance %s m  closest %s m%s\n' \
       "$a" "$ax" "$ay" "$b" "$bx" "$by" "$d" "$min" "$warn"
   fi
-  sleep 1
+  sleep 0.2  # 1s missed the closest moment of a 4 m/s head-on pass
 done
