@@ -45,6 +45,7 @@ SESSION=sim
 RUNS=~/sim_runs  # `down` saves each run's logs here, plus a line in summary.txt
 MISSION_LOG="$RUNS/current_mission.jsonl"  # sim.sh demo records here while running
 RISK_MAP="$RUNS/current_risk_map.json"  # sim.sh demo-flood's flood map while running
+TRUTH_LOG="$RUNS/current_truth.jsonl"  # true drone positions, if the backend logs them
 VIDEO_DIR=/mnt/c/Users/UAV_group/Videos  # sim.sh render copies the GIF here (Windows side)
 SELF="$(realpath "$0")"
 ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup.bash"
@@ -94,6 +95,9 @@ save_run() {  # every window's full scrollback -> ~/sim_runs/<time>_<test>/
     [ -f "$RISK_MAP" ] && mv "$RISK_MAP" "$dir/risk_map.json"
     say "mission recording saved - turn it into a video with: bash $SELF render"
   fi
+  # Simulator ground truth, from backends that log it (AirSim's distance
+  # watch) - compare with mission.jsonl's believed positions.
+  [ -f "$TRUTH_LOG" ] && mv "$TRUTH_LOG" "$dir/truth.jsonl"
   say "logs saved to $dir"
   say "drone-to-drone ${closest:-distance: not recorded (no dist window)}"
 }
@@ -160,7 +164,8 @@ node() {  # node N [EXTRA ROS ARGS for this drone only] - starts at its spawn po
 }
 
 distance_window() {
-  window dist "SIM=$SIM bash $REPO/ros2_ws/tools/drone_distance.sh"
+  mkdir -p "$RUNS" && rm -f "$TRUTH_LOG"
+  window dist "SIM=$SIM TRUTH_LOG=$TRUTH_LOG bash $REPO/ros2_ws/tools/drone_distance.sh"
 }
 
 wait_airborne() {  # wait_airborne N
@@ -349,6 +354,8 @@ test_x() {  # both drones flying, paths crossing head-on, twice
   # CBBA never picks crossing paths on distance alone (swapping two
   # crossing assignments is always shorter), so each drone may only take
   # its own target type: x0 for drone 0, x1 for drone 1.
+  mkdir -p "$RUNS"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
   node 0 "-p task_types:=x0"
   node 1 "-p task_types:=x1"
   distance_window

@@ -860,9 +860,42 @@ for manual tests (`PX4_SYS_AUTOSTART=10016 PX4_SIM_HOST_ADDR=<windows ip>
 
 First live `SIM=airsim sim.sh test-x`: both armed on the first attempt,
 both reached both targets, closest **2.33m**, PX4's simulated battery
-drains as in Gazebo. Caveat: `drone_distance.sh` only manages ~1.2 samples/s
-here (two Python API calls per sample), so the true minimum can be lower
-than reported - one run, not yet repeated.
+drains as in Gazebo.
+
+**AirSim GPS latency — found and fixed 2026-10-13.** That first 2.33m was
+measured at ~1.2 samples/s (two fresh Python processes per sample). With
+`airsim_tool.py watch` (one API connection, 10Hz, `drone_distance.sh` uses
+it via the optional `backend_distance_watch`), AirSim `test-x` dipped under
+the floor in **3 of 9 runs (1.28, 1.46, 0.92m)** while Gazebo held >=1.72m.
+Diagnosis, step by step (each wrong guess ruled out with data):
+- New recordings: the distance watch writes true positions to
+  `truth.jsonl` (sim.sh saves it per run), `test-x` now runs
+  `mission_recorder.py`, which also records every `TrajectorySetpoint`
+  each node sends; `tools/compare_truth.py RUN_DIR` lines up believed
+  (AgentState) and true positions.
+- Not the avoidance logic: in the bad runs every setpoint stayed >=1.84m
+  from the neighbour; the drones flew past safe setpoints, and the offline
+  model replaying the same geometry passed. Not broadcast timing (10Hz in
+  both simulators), not AirSim running slow (battery drain shows AirSim's
+  PX4 at real time; Gazebo is the slower one, ~0.84x).
+- Cause: AirSim's GPS reports 0.2s late by default
+  (`GpsSimpleParams::update_latency`) while PX4's estimator assumes 10ms
+  (`SENS_GPS0_DELAY`, set-default in `px4-rc.mavlinksim`). Estimates lagged
+  the truth by 0.3-0.7s, so the position controller kept a drone moving
+  for up to a second after its setpoint reversed, and close crossings
+  turned into a ~3.5s back-and-forth standoff that overshot the floor.
+- Fix (`airsim_tool.py` settings): every vehicle lists its four sensors
+  with GPS `UpdateLatency` 0.01, matching PX4. No coordination-code change.
+  Belief now trails truth by ~0.1s with 0.02-0.09m median error (was
+  0.33m); setpoint-tracking residual 0.18m, same as Gazebo's 0.17m.
+  AirSim's vehicle still brakes more softly (accel p95 ~1.3 vs 2.9 m/s2),
+  which the floor handles.
+- **Live after the fix, 8 runs** (`repeat 3` + `repeat 5`): closest 1.95,
+  1.64, 2.58, 1.56, 1.93, 2.49, 2.74, 2.15m; both drones reached both
+  targets every run.
+- For real hardware: the same failure mode exists - PX4's GPS delay
+  parameter must match the actual receiver, or crossings degrade the same
+  way.
 
 **Presenting a run:** `sim.sh demo` flies a three-act scenario (PSO search,
 a 4-target CBBA auction, then a low-battery hand-off) while

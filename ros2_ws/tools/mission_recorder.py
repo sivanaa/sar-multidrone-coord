@@ -44,7 +44,7 @@ class MissionRecorder(Node):
 
     def _subscribe_batteries(self, num_drones):
         try:
-            from px4_msgs.msg import BatteryStatus
+            from px4_msgs.msg import BatteryStatus, TrajectorySetpoint
         except ImportError:
             self.get_logger().warning('px4_msgs missing - no battery levels')
             return
@@ -59,6 +59,12 @@ class MissionRecorder(Node):
             self.create_subscription(
                 BatteryStatus, f'{prefix}/fmu/out/battery_status{suffix}',
                 lambda msg, i=i: self._on_battery(i, msg), qos)
+            # What each node commands PX4, to compare with where the drone
+            # then is (AgentState) - how well the simulator's vehicle tracks
+            # setpoints. In that PX4's own local frame (origin = its spawn).
+            self.create_subscription(
+                TrajectorySetpoint, f'{prefix}/fmu/in/trajectory_setpoint',
+                lambda msg, i=i: self._on_setpoint(i, msg), qos)
 
     def _write(self, record):
         record['t'] = time.time()
@@ -84,6 +90,11 @@ class MissionRecorder(Node):
         self._write({
             'type': 'target', 'drone': msg.drone_id, 'id': msg.target_id,
             'x': msg.position.x, 'y': msg.position.y})
+
+    def _on_setpoint(self, drone_id, msg):
+        self._write({'type': 'setpoint', 'drone': drone_id,
+                     'local_x': float(msg.position[0]),
+                     'local_y': float(msg.position[1])})
 
     def _on_battery(self, drone_id, msg):
         if msg.connected and msg.remaining >= 0.0:

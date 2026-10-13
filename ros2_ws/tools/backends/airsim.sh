@@ -63,3 +63,11 @@ backend_pose() {  # backend_pose N - drone N's true position as "X Y", shared fr
 backend_stop() {  # backend_stop - close the AirSim (Blocks) window, if sim.sh opened one
   powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='UE4Editor.exe'\" | Where-Object { \$_.CommandLine -match 'Blocks.uproject' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force }" >/dev/null 2>&1
 }
+
+backend_distance_watch() {  # backend_distance_watch A B - optional: drone_distance.sh
+  # uses this instead of polling backend_pose, which costs a fresh Python
+  # process per call here (~1.2 samples/s); this keeps one API connection.
+  local spawns=() n
+  for n in "${!SPAWN_X[@]}"; do spawns+=("--spawn=${SPAWN_X[n]},${SPAWN_Y[n]}"); done
+  airsim_tool watch "$1" "$2" "${spawns[@]}" ${TRUTH_LOG:+--log "$TRUTH_LOG"}
+}

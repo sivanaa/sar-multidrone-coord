@@ -12,6 +12,10 @@ say() { echo "[distance] $*"; }
 tools="$(dirname "$(realpath "$0")")"
 source "$tools/fleet.sh"  # SPAWN_X / SPAWN_Y
 source "$tools/backends/${SIM:-gazebo}.sh" || exit 1
+if declare -F backend_distance_watch >/dev/null; then
+  backend_distance_watch "$a" "$b"  # backend has a faster way (AirSim)
+  exit
+fi
 while true; do
   read -r ax ay <<< "$(backend_pose "$a")"
   read -r bx by <<< "$(backend_pose "$b")"
