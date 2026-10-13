@@ -823,7 +823,46 @@ used for both the simulator and the nodes' `initial_x`/`initial_y`, so the
 two can't disagree. Tests, demos and the coordination node are unchanged
 and run the same on either simulator. `drone_distance.sh` now prints
 shared-frame positions (`drone0 (x, y)`), not Gazebo ones, and takes drone
-ids instead of model names.
+ids instead of model names. The spawn table lives in `tools/fleet.sh`.
+
+**AirSim backend — confirmed live 2026-10-13.** This machine already had
+Microsoft AirSim **v1.8.1** (final release, archived 2022) built from source
+at `D:\Sim\AirSim` with the Blocks environment, on Unreal Engine **4.27.2**
+(`D:\UE_4.27`); the WSL side has the matching `airsim` 1.8.1 Python client.
+PX4 v1.18 still supports it: airframe `10016` (`none_iris`) starts
+`simulator_mavlink`, which dials AirSim on TCP `4560 + instance` at
+`PX4_SIM_HOST_ADDR`. Unlike Gazebo, no barometer or GCS-link fix-ups were
+needed - first launch reached "Ready for takeoff". `SIM=airsim sim.sh ...`:
+- writes `Documents\AirSim\settings.json` from `fleet.sh` (vehicles
+  `PX4_N`, TcpPort `4560+N`, control ports `14540+N`/`14580+N`; the file
+  that was there first is kept as `settings.json.before-sim-sh`) via
+  `tools/airsim/airsim_tool.py`, which also draws markers (persistent
+  `simPlotPoints`) and reads true poses;
+- looks Windows up as WSL's default gateway every run (`172.31.224.1`
+  today; it changes when Windows restarts) and uses it for both
+  `LocalHostIp` and `PX4_SIM_HOST_ADDR`;
+- starts Blocks (`UE4Editor.exe ... -game`) itself and waits until Windows
+  reports TCP 4560 listening. Not the API port or the log: AirSim's startup
+  blocks in `acceptTcp` until PX4 connects, its "Waiting for TCP connection"
+  line only goes to the screen, and probing 4560 would be accepted as
+  drone 0's PX4 link. Both PX4s then start together
+  (`BACKEND_PX4_TOGETHER`) rather than one after the other as for Gazebo;
+- `down` closes the Blocks window. Prefix every command with `SIM=airsim`,
+  `down` and `distance` included.
+
+AirSim's world frame is NED with its origin at PlayerStart (drone 0's
+spawn), so shared (x, y) = AirSim (x, y), no swap. `simGetVehiclePose` is
+relative to each vehicle's own spawn, so the tool adds it back - confirmed:
+on the ground, drone 1 read (5.00, 5.00), 7.07m from drone 0.
+`tools/airsim/settings_1drone.json` is a hand-copyable one-drone version
+for manual tests (`PX4_SYS_AUTOSTART=10016 PX4_SIM_HOST_ADDR=<windows ip>
+./build/px4_sitl_default/bin/px4 -i 0`).
+
+First live `SIM=airsim sim.sh test-x`: both armed on the first attempt,
+both reached both targets, closest **2.33m**, PX4's simulated battery
+drains as in Gazebo. Caveat: `drone_distance.sh` only manages ~1.2 samples/s
+here (two Python API calls per sample), so the true minimum can be lower
+than reported - one run, not yet repeated.
 
 **Presenting a run:** `sim.sh demo` flies a three-act scenario (PSO search,
 a 4-target CBBA auction, then a low-battery hand-off) while

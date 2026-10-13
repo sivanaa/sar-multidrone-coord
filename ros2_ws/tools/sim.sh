@@ -51,13 +51,9 @@ ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup
 NODE_ARGS="-p num_drones:=2 -p use_px4_offboard:=true -p hold_altitude:=3.0"
 NODE_ARGS+=" -p area_center_x:=4.0 -p area_center_y:=4.0 -p area_radius:=6.0"
 
-# Spawn points, drone N at (SPAWN_X[N], SPAWN_Y[N]) in the fleet's shared
-# frame (drone 0's PX4 local NED frame). Each backend converts them to its
-# own world frame; the nodes get them unchanged as initial_x/initial_y.
-SPAWN_X=(0.0 5.0)
-SPAWN_Y=(0.0 5.0)
-
 say() { echo "[sim] $*"; }
+
+source "$(dirname "$SELF")/fleet.sh"  # SPAWN_X / SPAWN_Y
 
 SIM=${SIM:-gazebo}
 BACKEND="$(dirname "$SELF")/backends/$SIM.sh"
@@ -125,10 +121,17 @@ up() {
   say "starting $BACKEND_NAME (shared world - must be up before any PX4)..."
   backend_world_up $headless || return 1
 
+  # Gazebo needs each PX4 up before the next joins its world; AirSim may
+  # not step its clock until every vehicle has connected, so there all
+  # PX4s start first (BACKEND_PX4_TOGETHER).
   for n in 0 1; do
     say "starting PX4 instance $n..."
     env=$(backend_px4_env "$n" "${SPAWN_X[n]}" "${SPAWN_Y[n]}") || return 1
     window "px4_$n" "cd $PX4 && PX4_UXRCE_DDS_PORT=$((8888 + n)) $env ./build/px4_sitl_default/bin/px4 -i $n"
+    [ -n "${BACKEND_PX4_TOGETHER:-}" ] && { sleep 2; continue; }
+    wait_for "px4_$n" 'pxh>' 90 || { say "PX4 $n didn't start - look at window px4_$n."; return 1; }
+  done
+  for n in 0 1; do
     wait_for "px4_$n" 'pxh>' 90 || { say "PX4 $n didn't start - look at window px4_$n."; return 1; }
     window "agent$n" "$AGENT udp4 -p $((8888 + n))"
   done

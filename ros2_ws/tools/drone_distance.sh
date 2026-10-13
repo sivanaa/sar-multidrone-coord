@@ -9,7 +9,9 @@ a=${1:-0}
 b=${2:-1}
 min=999
 say() { echo "[distance] $*"; }
-source "$(dirname "$(realpath "$0")")/backends/${SIM:-gazebo}.sh" || exit 1
+tools="$(dirname "$(realpath "$0")")"
+source "$tools/fleet.sh"  # SPAWN_X / SPAWN_Y
+source "$tools/backends/${SIM:-gazebo}.sh" || exit 1
 while true; do
   read -r ax ay <<< "$(backend_pose "$a")"
   read -r bx by <<< "$(backend_pose "$b")"
