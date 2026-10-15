@@ -2,8 +2,9 @@
 """Small AirSim helper for backends/airsim.sh (runs in WSL, talks to AirSim
 on Windows through its RPC API, port 41451).
 
-  settings --spawn=X,Y [--spawn=X,Y ...] --host IP [--headless]
-      print an AirSim settings.json with one PX4 vehicle per spawn point
+  settings --spawn=X,Y [--spawn=X,Y ...] --host IP [--headless] [--camera WxH]
+      print an AirSim settings.json with one PX4 vehicle per spawn point,
+      optionally each with a nadir camera
   pose N --spawn-x X --spawn-y Y --host IP
       print vehicle PX4_N's true position as "X Y" in the shared frame
   marker X Y R G B --host IP
@@ -43,7 +44,34 @@ SENSORS = {
 }
 
 
-def settings(spawns, host, headless):
+# Nadir camera like the single-drone pipeline's GoPro (Linear, 87 deg
+# horizontal FOV, gimbal holding it straight down - see flood_grid.py's
+# Camera). AirSim's FOV_Degrees is horizontal too. Full GoPro resolution
+# is 1920x1080; two drones on this PC's GTX 1660 get a smaller default,
+# same aspect ratio, so the pinhole geometry is unchanged.
+CAMERA_NAME = 'nadir'
+CAMERA_HFOV_DEG = 87.0
+CAMERA_Z_M = 0.1  # mounted 0.1m below the vehicle's origin (NED: +down)
+
+
+def nadir_camera(width, height):
+    """Body-fixed, pointing straight down. No AirSim "Gimbal": its tick
+    (PIPCamera.cpp) reads the camera's world rotation as Euler angles,
+    overwrites pitch/roll and keeps the yaw - which, looking straight down,
+    is degenerate (gimbal lock), so frames spun freely about the optical
+    axis (each drone's shadow, fixed in the world, swung through 120-180 deg
+    of the image while AirSim's reported orientation tracked the spin; -89
+    instead of -90 didn't help). frame_logger.py stabilizes the camera
+    itself before each capture, with quaternions (see stabilize_camera)."""
+    return {CAMERA_NAME: {
+        'CaptureSettings': [{'ImageType': 0, 'Width': width,
+                             'Height': height, 'FOV_Degrees': CAMERA_HFOV_DEG}],
+        'X': 0.0, 'Y': 0.0, 'Z': CAMERA_Z_M,
+        'Pitch': -90.0, 'Roll': 0.0, 'Yaw': 0.0,
+    }}
+
+
+def settings(spawns, host, headless, camera=None):
     vehicles = {}
     for n, (x, y) in enumerate(spawns):
         vehicles[f'PX4_{n}'] = {
@@ -70,6 +98,9 @@ def settings(spawns, host, headless):
         'ClockType': 'SteppableClock',
         'Vehicles': vehicles,
     }
+    if camera:
+        for vehicle in vehicles.values():
+            vehicle['Cameras'] = nadir_camera(*camera)
     if headless:
         doc['ViewMode'] = 'NoDisplay'
     return json.dumps(doc, indent=2)
@@ -140,6 +171,8 @@ def main(argv=None):
                    help='X,Y in the shared frame (write as --spawn=X,Y)')
     p.add_argument('--host', required=True)
     p.add_argument('--headless', action='store_true')
+    p.add_argument('--camera', metavar='WxH',
+                   help='add a nadir camera per drone, e.g. 640x360')
     p = sub.add_parser('pose')
     p.add_argument('n', type=int)
     p.add_argument('--spawn-x', type=float, required=True)
@@ -163,7 +196,9 @@ def main(argv=None):
 
     if args.cmd == 'settings':
         spawns = [tuple(float(v) for v in s.split(',')) for s in args.spawn]
-        print(settings(spawns, args.host, args.headless))
+        camera = (tuple(int(v) for v in args.camera.lower().split('x'))
+                  if args.camera else None)
+        print(settings(spawns, args.host, args.headless, camera))
     elif args.cmd == 'pose':
         xy = shared_xy(client(args.host), args.n, (args.spawn_x, args.spawn_y))
         if xy is None:

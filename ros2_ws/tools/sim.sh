@@ -5,9 +5,11 @@
 # typed into each PX4 shell for you - instead of 7-8 terminals by hand (see
 # ARCHITECTURE.md "Launch sequence" for what each step is and why).
 #
-# Simulator: Gazebo by default; SIM=airsim bash sim.sh ... for AirSim (not
-# implemented yet). Everything simulator-specific is in backends/$SIM.sh;
-# the tests and the coordination nodes are the same for both.
+# Simulator: Gazebo by default; SIM=airsim bash sim.sh ... for AirSim.
+# Everything simulator-specific is in backends/$SIM.sh; the tests and the
+# coordination nodes are the same for both. AirSim only: CAMERA=640x360
+# adds a nadir camera per drone and saves its frames with the pose they
+# were taken from (airsim/frame_logger.py) to the run's frames/ folder.
 #
 # Usage, from any WSL terminal:
 #   bash sim.sh demo [--headless]         recorded 3-act run (search, auction, battery
@@ -46,6 +48,7 @@ RUNS=~/sim_runs  # `down` saves each run's logs here, plus a line in summary.txt
 MISSION_LOG="$RUNS/current_mission.jsonl"  # sim.sh demo records here while running
 RISK_MAP="$RUNS/current_risk_map.json"  # sim.sh demo-flood's flood map while running
 TRUTH_LOG="$RUNS/current_truth.jsonl"  # true drone positions, if the backend logs them
+FRAMES_DIR="$RUNS/current_frames"  # CAMERA=WxH runs: nadir frames + poses
 VIDEO_DIR=/mnt/c/Users/UAV_group/Videos  # sim.sh render copies the GIF here (Windows side)
 SELF="$(realpath "$0")"
 ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup.bash"
@@ -98,6 +101,12 @@ save_run() {  # every window's full scrollback -> ~/sim_runs/<time>_<test>/
   # Simulator ground truth, from backends that log it (AirSim's distance
   # watch) - compare with mission.jsonl's believed positions.
   [ -f "$TRUTH_LOG" ] && mv "$TRUTH_LOG" "$dir/truth.jsonl"
+  if [ -d "$FRAMES_DIR" ]; then  # CAMERA=WxH runs
+    tmux send-keys -t "$SESSION:camera" C-c 2>/dev/null
+    sleep 1
+    mv "$FRAMES_DIR" "$dir/frames"
+    say "camera frames: $(find "$dir/frames" -name '*.png' | wc -l) in $dir/frames"
+  fi
   say "logs saved to $dir"
   say "drone-to-drone ${closest:-distance: not recorded (no dist window)}"
 }
@@ -163,9 +172,20 @@ node() {  # node N [EXTRA ROS ARGS for this drone only] - starts at its spawn po
   window "coord$1" "$ROS_ENV && ros2 run coordination_node coordination_node --ros-args -p drone_id:=$1 -p initial_x:=${SPAWN_X[$1]} -p initial_y:=${SPAWN_Y[$1]} $NODE_ARGS ${NODE_EXTRA:-} ${2:-}"
 }
 
-distance_window() {
+distance_window() {  # every test calls this once its nodes are up
   mkdir -p "$RUNS" && rm -f "$TRUTH_LOG"
   window dist "SIM=$SIM TRUTH_LOG=$TRUTH_LOG bash $REPO/ros2_ws/tools/drone_distance.sh"
+  camera_window
+}
+
+camera_window() {  # CAMERA=WxH: log nadir frames + pose, if the backend can
+  [ -n "${CAMERA:-}" ] || return 0
+  if ! declare -F backend_camera_logger >/dev/null; then
+    say "CAMERA is set but $BACKEND_NAME has no camera - ignoring it."
+    return 0
+  fi
+  rm -rf "$FRAMES_DIR" && mkdir -p "$FRAMES_DIR"
+  window camera "$ROS_ENV && $(backend_camera_logger "$FRAMES_DIR")"
 }
 
 wait_airborne() {  # wait_airborne N

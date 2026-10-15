@@ -1200,9 +1200,37 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
       target 2 at once and target 1 when its 3-task bundle had room, and
       reached all four (1.75m). Also fixed `test-battery`'s message, which
       claimed drone 0 ends up with all 4 - a drone holds 3 at a time.
-   2. Nadir camera per drone (87° HFOV, GoPro-like) and image + PX4 pose
-      logging; check AirSim still keeps real time with two cameras (battery
-      drain timing, as in the GPS investigation).
+   2. ~~Nadir camera + image/pose logging~~ — done 2026-10-15.
+      `CAMERA=640x360 SIM=airsim sim.sh <test>` gives each drone a nadir
+      camera (`airsim_tool.py`: 87° horizontal FOV like the GoPro, 16:9,
+      smaller than its 1920x1080 for two drones on the GTX 1660) and runs
+      `tools/airsim/frame_logger.py`, which saves 2 frames/s per drone to
+      the run's `frames/d<N>/` plus `frames.jsonl`: PX4's estimate in the
+      fields `flood_to_risk_map.py` reads (`x`, `y`, `alt`, `yaw`), its age,
+      and AirSim's true camera pose (`true`: position, image-top heading,
+      pitch). It also logs AirSim's real-time factor (sim/wall time from
+      image stamps). Found on the way:
+      - AirSim's camera `Gimbal` can't hold a nadir camera: its tick
+        (`PIPCamera.cpp`) overwrites pitch/roll of the camera's Euler
+        rotation and keeps the yaw, which is degenerate looking straight
+        down - frames spun about the optical axis (each drone's shadow,
+        fixed in the world, swung through 120-180° of the image; -89°
+        instead of -90° didn't help). Replaced by our own follow-mode
+        gimbal: before each capture the logger sets the camera's relative
+        rotation to body⁻¹·nadir(heading), in quaternions
+        (`stabilize_camera`; airsim 1.8.1's `Quaternionr.inverse()` breaks
+        on NumPy 2, so `conjugate()`).
+      - AirSim measures heights from ~0.7m above its ground: true altitude
+        is taken relative to each drone's lowest on-ground camera reading.
+      - `spin_once` returns at the first PX4 message (~100Hz), so the
+        first version captured ~37 frames/s; it now waits for its slot.
+      Result (`test-search`, 277 frames): image top within 0.7° of PX4's
+      yaw (95%), pitch -90.0°, shadow steady (3° spread), PX4 vs true
+      position 4cm, altitude 2cm, estimate 45ms old, real-time factor 1.00
+      with both cameras. Frames are ~0.2MB each (51MB per minute-long run).
+      Still unverified: that image top really is the drone's forward
+      direction in the rendered scene (needs a recognisable object - step
+      3).
    3. A scene with people and water (Blocks has neither; target markers are
       debug points a camera can't see) - likely a small UE 4.27 scene.
    4. Vision → `detect_target` bridge: person detection on frames, pixel →

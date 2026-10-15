@@ -27,7 +27,8 @@ backend_world_up() {  # backend_world_up [--headless] - start AirSim, wait for i
   # Keep whatever settings.json was there before sim.sh first replaced it.
   [ -f "$AIRSIM_SETTINGS" ] && [ ! -f "$AIRSIM_SETTINGS.before-sim-sh" ] \
     && cp "$AIRSIM_SETTINGS" "$AIRSIM_SETTINGS.before-sim-sh"
-  airsim_tool settings "${spawns[@]}" ${1:+--headless} > "$AIRSIM_SETTINGS" \
+  airsim_tool settings "${spawns[@]}" ${1:+--headless} ${CAMERA:+--camera "$CAMERA"} \
+    > "$AIRSIM_SETTINGS" \
     || { say "couldn't write $AIRSIM_SETTINGS"; return 1; }
   window airsim "'$AIRSIM_EDITOR' '$AIRSIM_UPROJECT' -game -windowed -ResX=1280 -ResY=720 -log -unattended ${1:+-RenderOffScreen}"
   # Ready once AirSim listens for PX4 on TCP 4560. Its startup blocks there
@@ -70,4 +71,11 @@ backend_distance_watch() {  # backend_distance_watch A B - optional: drone_dista
   local spawns=() n
   for n in "${!SPAWN_X[@]}"; do spawns+=("--spawn=${SPAWN_X[n]},${SPAWN_Y[n]}"); done
   airsim_tool watch "$1" "$2" "${spawns[@]}" ${TRUTH_LOG:+--log "$TRUTH_LOG"}
+}
+
+backend_camera_logger() {  # backend_camera_logger OUT_DIR - optional: prints the
+  # command sim.sh runs (in a ROS-sourced window) for CAMERA=WxH runs.
+  local spawns="" n
+  for n in "${!SPAWN_X[@]}"; do spawns+=" --spawn=${SPAWN_X[n]},${SPAWN_Y[n]}"; done
+  echo "python3 $AIRSIM_DIR/frame_logger.py --host $AIRSIM_HOST$spawns --out $1"
 }
