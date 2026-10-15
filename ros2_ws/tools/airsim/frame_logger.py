@@ -55,7 +55,8 @@ ON_GROUND_ALT_M = 0.3  # PX4 altitude below which a drone counts as landed
 
 
 class PoseCache(Node):
-    """Latest PX4 position estimate per drone, in the shared frame."""
+    """Latest PX4 estimate per drone: (wall time, x, y, alt, heading, vz),
+    position in the shared frame, vz in m/s (NED: + = descending)."""
 
     def __init__(self, spawns, node_name='airsim_frame_logger'):
         super().__init__(node_name)
@@ -77,7 +78,7 @@ class PoseCache(Node):
     def _on_position(self, i, spawn, msg):
         if msg.xy_valid and msg.z_valid:
             self.poses[i] = (time.time(), msg.x + spawn[0], msg.y + spawn[1],
-                             -msg.z, msg.heading)
+                             -msg.z, msg.heading, msg.vz)
 
 
 def rotate(q, v):

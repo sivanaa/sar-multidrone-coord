@@ -13,6 +13,13 @@ AIRSIM_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/../airsim"
 # Paths on this machine (see ARCHITECTURE.md) - adjust if yours differ.
 AIRSIM_EDITOR=/mnt/d/UE_4.27/Engine/Binaries/Win64/UE4Editor.exe
 AIRSIM_UPROJECT='D:\Sim\AirSim\Unreal\Environments\Blocks\Blocks.uproject'
+# Our own level: a copy of Blocks' FlyingExampleMap with one SM_Mannequin and
+# one Shape_Plane 50m underground. In -game mode Unreal's asset registry
+# doesn't scan the disk, so AirSim can only spawn assets the level has
+# loaded - the hidden copies make them spawnable (ARCHITECTURE.md, step 4).
+# Falls back to the project's default level where SARMap doesn't exist.
+AIRSIM_MAP=/Game/SAR/SARMap
+[ -f /mnt/d/Sim/AirSim/Unreal/Environments/Blocks/Content/SAR/SARMap.umap ] || AIRSIM_MAP=
 AIRSIM_LOG=/mnt/d/Sim/AirSim/Unreal/Environments/Blocks/Saved/Logs/Blocks.log
 AIRSIM_SETTINGS=/mnt/c/Users/UAV_group/Documents/AirSim/settings.json
 # Windows as seen from WSL (WSL's default gateway). Changes when Windows
@@ -30,7 +37,7 @@ backend_world_up() {  # backend_world_up [--headless] - start AirSim, wait for i
   airsim_tool settings "${spawns[@]}" ${1:+--headless} ${CAMERA:+--camera "$CAMERA"} \
     > "$AIRSIM_SETTINGS" \
     || { say "couldn't write $AIRSIM_SETTINGS"; return 1; }
-  window airsim "'$AIRSIM_EDITOR' '$AIRSIM_UPROJECT' -game -windowed -ResX=1280 -ResY=720 -log -unattended ${1:+-RenderOffScreen}"
+  window airsim "'$AIRSIM_EDITOR' '$AIRSIM_UPROJECT' $AIRSIM_MAP -game -windowed -ResX=1280 -ResY=720 -log -unattended ${1:+-RenderOffScreen}"
   # Ready once AirSim listens for PX4 on TCP 4560. Its startup blocks there
   # (MavLinkMultirotorApi acceptTcp) until PX4 connects, so its API port
   # isn't up yet, and the "Waiting for TCP connection" line goes to the
@@ -80,10 +87,16 @@ backend_camera_logger() {  # backend_camera_logger OUT_DIR - optional: prints th
   echo "python3 $AIRSIM_DIR/frame_logger.py --host $AIRSIM_HOST$spawns --out $1"
 }
 
-backend_target() {  # backend_target NAME X Y - optional: a real target object at
-  # shared (X, Y) that cameras can see (vs backend_marker, drawn on screen
-  # only). Prints its settled position as one JSON line.
-  airsim_tool target "$1" "$2" "$3"
+backend_target() {  # backend_target NAME X Y [YAW_DEG] - optional: a real target
+  # object (a person lying along YAW_DEG, 0 = north) centred at shared
+  # (X, Y) that cameras can see - vs backend_marker, drawn on screen only.
+  # Prints where it ended up as one JSON line.
+  airsim_tool target "$1" "$2" "$3" --yaw "${4:-0}"
+}
+
+backend_river() {  # backend_river RISK_MAP_JSON - optional: lay water along
+  # make_risk_map.py's river polyline, so cameras see the flood the map describes.
+  airsim_tool river "$1"
 }
 
 backend_vision_bridge() {  # backend_vision_bridge LOG - optional: prints the

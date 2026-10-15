@@ -300,6 +300,8 @@ demo_flood() {  # search weighted by a synthetic flood-risk map, recorded
   tmux set-environment -t "$SESSION" RUN_NAME demo-flood
   mkdir -p "$RUNS"
   python3 "$REPO/ros2_ws/tools/make_risk_map.py" "$RISK_MAP" || return 1
+  # Simulators with a scene to show it in (AirSim) lay water along the river.
+  declare -F backend_river >/dev/null && backend_river "$RISK_MAP"
   window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
   NODE_EXTRA="-p risk_map_file:=$RISK_MAP"
   node 0
@@ -391,11 +393,12 @@ test_vision() {  # cameras find the targets - no scripted detections
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-vision
   mkdir -p "$RUNS" && rm -f "$TARGETS_LOG" "$DETECTIONS_LOG"
-  # Person-sized boxes lying in the search area, before anyone takes off.
+  # People lying in the search area (Mannequins on SARMap, else boxes),
+  # each a different way round, placed before anyone takes off.
   say "placing 3 targets: (1, 8), (8, 2), (6, 7) - nobody is told where."
-  backend_target sar_target_1 1 8 >> "$TARGETS_LOG"
-  backend_target sar_target_2 8 2 >> "$TARGETS_LOG"
-  backend_target sar_target_3 6 7 >> "$TARGETS_LOG"
+  backend_target sar_target_1 1 8 30 >> "$TARGETS_LOG"
+  backend_target sar_target_2 8 2 120 >> "$TARGETS_LOG"
+  backend_target sar_target_3 6 7 250 >> "$TARGETS_LOG"
   window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
   node 0
   node 1

@@ -9,9 +9,12 @@ on Windows through its RPC API, port 41451).
       print vehicle PX4_N's true position as "X Y" in the shared frame
   marker X Y R G B --host IP
       draw a persistent coloured point at shared (X, Y), 0.5m up
-  target NAME X Y --host IP
-      spawn a person-sized target box at shared (X, Y), labelled for the
-      segmentation camera; prints its settled position as one JSON line
+  target NAME X Y --host IP [--yaw DEG] [--kind person|box]
+      spawn a target lying at shared (X, Y) - Unreal's Mannequin, or a
+      person-sized box where SARMap isn't loaded - labelled for the
+      segmentation camera; prints its position as one JSON line
+  river RISK_MAP_JSON --host IP [--width 3]
+      lay water strips along make_risk_map.py's river polyline
   watch A B --spawn=X,Y [--spawn=X,Y ...] --host IP [--hz 10]
       live distance between drones A and B, drone_distance.sh's format
 
@@ -127,29 +130,82 @@ def client(host):
     return airsim.MultirotorClient(ip=host, port=API_PORT, timeout_value=5)
 
 
-# Stand-in for a person lying on the ground, until a scene with real people
-# exists: Blocks' 1m chamfered cube, scaled to 0.6 x 1.7 x 0.3m. Dropped from
-# just above the ground with physics on, so it settles wherever the ground
-# is (AirSim's ground sits ~0.7m below PlayerStart's height in Blocks).
-TARGET_ASSET = '1M_Cube_Chamfer'
-TARGET_SCALE = (0.6, 1.7, 0.3)
-TARGET_HEIGHT_M = TARGET_SCALE[2]
+# Targets: a person lying on the ground. 'person' is Unreal's Mannequin,
+# available once SARMap is loaded (backends/airsim.sh); 'box' is Blocks'
+# 1m chamfered cube scaled to 0.6 x 1.7 x 0.3m, the stand-in used before
+# SARMap existed. Both get TARGET_SEG_ID for the segmentation camera.
+TARGET_HEIGHT_M = 0.3  # top surface above ground, for vision_bridge.py
 TARGET_SEG_ID = 200
 TARGET_PREFIX = 'sar_target_'  # vision_bridge.py relabels these by regex
+BOX_ASSET = '1M_Cube_Chamfer'
+BOX_SCALE = (0.6, 1.7, 0.3)
+PERSON_ASSET = 'SM_Mannequin'
+# The static Mannequin has no collision, so it can't be dropped with physics
+# like the box: it is placed at the ground height the boxes settled at
+# (centres at z=0.87, 0.15m above the ground at z~1.02 in Blocks' NED), its
+# ~0.25m-deep body half sunk. Its pivot is at the feet, and laid down (pitch
+# +90 deg) the body runs ~1.8m backwards from it - placed so the body's
+# centre is at the requested point (checked from 8m above, 2026-10-15).
+GROUND_Z_M = 1.02
+PERSON_HALF_LENGTH_M = 0.9
+PERSON_DEPTH_M = 0.25
 
 
-def spawn_target(c, name, x, y):
-    """Spawn target `name` at shared (x, y); returns its settled (x, y, z)."""
-    import airsim
+def spawn_target(c, name, x, y, kind='person', yaw_deg=0.0):
+    """Spawn target `name` with its centre at shared (x, y), lying along
+    heading yaw_deg (0 = north); returns where it ended up as (x, y, z)."""
+    import math
     import time
+
+    import airsim
+    if kind == 'person':
+        yaw = math.radians(yaw_deg)
+        pivot = (x + PERSON_HALF_LENGTH_M * math.cos(yaw),
+                 y + PERSON_HALF_LENGTH_M * math.sin(yaw))
+        name = c.simSpawnObject(
+            name, PERSON_ASSET,
+            airsim.Pose(airsim.Vector3r(pivot[0], pivot[1],
+                                        GROUND_Z_M - PERSON_DEPTH_M / 2),
+                        airsim.to_quaternion(math.pi / 2, 0.0, yaw)),
+            airsim.Vector3r(1.0, 1.0, 1.0), False)
+        c.simSetSegmentationObjectID(name, TARGET_SEG_ID, False)
+        return (x, y, GROUND_Z_M - PERSON_DEPTH_M / 2)
     name = c.simSpawnObject(
-        name, TARGET_ASSET,
-        airsim.Pose(airsim.Vector3r(x, y, 0.0), airsim.Quaternionr()),
-        airsim.Vector3r(*TARGET_SCALE), True)
+        name, BOX_ASSET,
+        airsim.Pose(airsim.Vector3r(x, y, 0.0),
+                    airsim.to_quaternion(0.0, 0.0, math.radians(yaw_deg))),
+        airsim.Vector3r(*BOX_SCALE), True)
     c.simSetSegmentationObjectID(name, TARGET_SEG_ID, False)
     time.sleep(2.0)  # let it fall and settle
     p = c.simGetObjectPose(name).position
     return (p.x_val, p.y_val, p.z_val)
+
+
+# Flood water: Starter Content's lake material on a flat 1m plane, scaled
+# along a river segment (both loaded by SARMap). simSetObjectMaterial
+# needs a plain Material's full object path.
+WATER_ASSET = 'Shape_Plane'
+WATER_MATERIAL = '/Game/StarterContent/Materials/M_Water_Lake.M_Water_Lake'
+
+
+def spawn_water(c, name, a, b, width, layer=0):
+    """Water strip `width` metres wide along segment a -> b (shared x, y),
+    overlapping the next segment by half its width so bends have no gaps."""
+    import math
+
+    import airsim
+    length = math.dist(a, b) + width / 2
+    yaw = math.atan2(b[1] - a[1], b[0] - a[0])
+    centre = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    name = c.simSpawnObject(
+        name, WATER_ASSET,
+        # each later strip 5mm higher: two planes at one height flicker
+        # where they overlap (z-fighting, seen at the river bend)
+        airsim.Pose(airsim.Vector3r(centre[0], centre[1],
+                                    GROUND_Z_M - 0.01 - 0.005 * layer),
+                    airsim.to_quaternion(0.0, 0.0, yaw)),
+        airsim.Vector3r(length, width, 1.0), False)
+    return name, c.simSetObjectMaterial(name, WATER_MATERIAL)
 
 
 def shared_xy(c, n, spawn):
@@ -227,6 +283,13 @@ def main(argv=None):
     p.add_argument('name')
     p.add_argument('x', type=float)
     p.add_argument('y', type=float)
+    p.add_argument('--yaw', type=float, default=0.0,
+                   help='heading the body lies along, degrees (0 = north)')
+    p.add_argument('--kind', choices=('person', 'box'), default='person')
+    p.add_argument('--host', required=True)
+    p = sub.add_parser('river')
+    p.add_argument('risk_map', help="make_risk_map.py's output (has 'river')")
+    p.add_argument('--width', type=float, default=3.0)
     p.add_argument('--host', required=True)
     p = sub.add_parser('watch')
     p.add_argument('a', type=int)
@@ -251,9 +314,22 @@ def main(argv=None):
             return 1
         print(f'{xy[0]:.3f} {xy[1]:.3f}')
     elif args.cmd == 'target':
-        x, y, z = spawn_target(client(args.host), args.name, args.x, args.y)
+        c = client(args.host)
+        kind = args.kind
+        if kind == 'person' and PERSON_ASSET not in c.simListAssets():
+            kind = 'box'  # not on SARMap: the stand-in still works
+        x, y, z = spawn_target(c, args.name, args.x, args.y, kind, args.yaw)
         # one JSON line: sim.sh appends it to the run's targets.jsonl
-        print(json.dumps({'name': args.name, 'x': x, 'y': y, 'z': z}))
+        print(json.dumps({'name': args.name, 'kind': kind, 'x': x, 'y': y,
+                          'z': z, 'yaw_deg': args.yaw}))
+    elif args.cmd == 'river':
+        with open(args.risk_map) as f:
+            river = json.load(f)['river']
+        c = client(args.host)
+        for k, (a, b) in enumerate(zip(river, river[1:])):
+            name, ok = spawn_water(c, f'sar_water_{k}', a, b, args.width, k)
+            print(f'water {name}: ({a[0]}, {a[1]}) -> ({b[0]}, {b[1]}), '
+                  f'{args.width}m wide{"" if ok else ", MATERIAL FAILED"}')
     elif args.cmd == 'watch':
         spawns = [tuple(float(v) for v in s.split(',')) for s in args.spawn]
         try:

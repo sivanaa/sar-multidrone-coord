@@ -22,6 +22,17 @@ Scene image takes its place (detect_blobs is the part to swap).
 A blob touching the image border is skipped (its centre isn't the
 target's); a detection within --dedupe metres of a target already reported
 by any drone (TargetDetected, all drones) is not reported again.
+
+Two guards against bad sightings, both from the first Mannequin run
+(2026-10-15), where drone 1 saw a person while still climbing at 1.2m and
+reported it 2.2m off - far enough that the later, correct sighting counted
+as a second person, and drone 0 flew to both:
+- only frames taken near cruise height and not climbing count (--min-alt,
+  --max-climb): during a climb PX4's altitude lags, and at low height a
+  small altitude error is a large share of the projection;
+- a target is reported only once --confirm sightings (any drone) agree
+  within --confirm-radius metres, at their average - which also trims the
+  first-sighting error at the frame edge.
 """
 
 import argparse
@@ -79,6 +90,7 @@ class VisionBridge(PoseCache):
         self.DetectTarget = DetectTarget
         self.dedupe_m = dedupe_m
         self.known = []  # (x, y) of every target reported by any drone
+        self.pending = []  # unconfirmed sightings: {'xy', 'n', 't'}
         self.detect_clients = {}
         for i in range(num_drones):
             self.create_subscription(
@@ -92,6 +104,27 @@ class VisionBridge(PoseCache):
 
     def is_new(self, xy):
         return all(math.dist(xy, k) > self.dedupe_m for k in self.known)
+
+    def confirm(self, xy, needed, radius, max_age_s=10.0):
+        """Add a sighting; return the averaged position once `needed`
+        sightings within `radius` metres agree, else None."""
+        now = time.time()
+        self.pending = [p for p in self.pending
+                        if now - p['t'] < max_age_s]
+        for p in self.pending:
+            if math.dist(xy, p['xy']) <= radius:
+                n = p['n'] + 1
+                p['xy'] = ((p['xy'][0] * p['n'] + xy[0]) / n,
+                           (p['xy'][1] * p['n'] + xy[1]) / n)
+                p['n'], p['t'] = n, now
+                if n >= needed:
+                    self.pending.remove(p)
+                    return p['xy']
+                return None
+        if needed <= 1:
+            return xy
+        self.pending.append({'xy': xy, 'n': 1, 't': now})
+        return None
 
     def report(self, drone, xy):
         client = self.detect_clients[drone]
@@ -122,6 +155,13 @@ def main():
     parser.add_argument('--dedupe', type=float, default=2.0,
                         help='metres within which a detection is the same target')
     parser.add_argument('--min-pixels', type=int, default=40)
+    parser.add_argument('--min-alt', type=float, default=2.5,
+                        help='metres; ignore frames below (sim.sh flies at 3)')
+    parser.add_argument('--max-climb', type=float, default=0.3,
+                        help='m/s; ignore frames while climbing/descending faster')
+    parser.add_argument('--confirm', type=int, default=2,
+                        help='sightings that must agree before reporting')
+    parser.add_argument('--confirm-radius', type=float, default=0.75)
     parser.add_argument('--log', help='write every detection here (JSON lines)')
     args, ros_args = parser.parse_known_args()
     spawns = [tuple(float(v) for v in s.split(',')) for s in args.spawn]
@@ -152,8 +192,9 @@ def main():
                     node.get_logger().warning(f'relabel failed ({exc})')
             for i in range(len(spawns)):
                 pose = node.poses.get(i)
-                if pose is None or pose[3] < 1.0:
-                    continue  # no valid estimate yet, or still on the ground
+                if (pose is None or pose[3] < args.min_alt
+                        or abs(pose[5]) > args.max_climb):
+                    continue  # no estimate yet, too low, or climbing
                 try:
                     stabilize_camera(client, f'PX4_{i}', airsim)
                     resp = client.simGetImages(
@@ -168,19 +209,23 @@ def main():
                 cam = cameras.setdefault(
                     (resp.width, resp.height),
                     Camera(CAMERA_HFOV_DEG, resp.width, resp.height))
-                _, x, y, alt, yaw = pose
+                _, x, y, alt, yaw, _ = pose
                 # Blob centres sit on the targets' top faces.
                 height = alt + CAMERA_CLEARANCE_M - TARGET_HEIGHT_M
                 for pixel, area in detect_blobs(seg, args.min_pixels):
                     xy = cam.ground_point(pixel, (x, y), height, yaw)
                     if xy is None:
                         continue
-                    new = node.is_new(xy)
-                    reported = new and node.report(i, xy)
-                    if reported:
-                        node.get_logger().info(
-                            f'drone {i} sees a target at ({xy[0]:.2f}, '
-                            f'{xy[1]:.2f}) - reported')
+                    reported = False
+                    if node.is_new(xy):
+                        confirmed = node.confirm(
+                            xy, args.confirm, args.confirm_radius)
+                        if confirmed and node.report(i, confirmed):
+                            reported = True
+                            node.get_logger().info(
+                                f'drone {i} sees a target at '
+                                f'({confirmed[0]:.2f}, {confirmed[1]:.2f}) - '
+                                f'reported ({args.confirm} sightings agree)')
                     if log:
                         log.write(json.dumps({
                             't': time.time(), 'drone': i,

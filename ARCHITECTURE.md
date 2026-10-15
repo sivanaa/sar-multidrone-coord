@@ -1261,11 +1261,49 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
         0.10m, max 0.39m, scale error +1.5%.
       - Later: report on a second, more central sighting to cut the
         first-sighting error.
-   4. Next: a scene with people and water (Blocks has neither) - one
-      guided Unreal Editor session to add Starter Content (water
-      materials) and the Mannequin to the Blocks project, then everything
-      scripted (`simSpawnObject` / `simSetObjectMaterial` exist in 1.8.1):
-      people at target positions, a water strip along `make_risk_map.py`'s
-      river. Then a real person detector on the Scene image in place of
-      segmentation, and higher altitude / larger area than the 3m / 6m
-      coordination tests.
+   4. ~~A scene with people and water~~ — done 2026-10-15. Lives in the
+      AirSim checkout (`D:\Sim\AirSim`), **not this repo**; to recreate it,
+      in the Unreal Editor (`UE4Editor.exe ...\Blocks.uproject`, no
+      `-game`):
+      - Add/Import → Add Feature or Content Pack: **Starter Content**
+        (Content Packs tab) and **Third Person** (*Blueprint* Feature tab -
+        the C++ one adds code to compile).
+      - Open `Mannequin/Character/Mesh/SK_Mannequin` → toolbar **Make
+        Static Mesh** → save as `SM_Mannequin` (it has no collision).
+      - File → Save Current As → new folder `SAR`, name **SARMap** (a copy;
+        `FlyingExampleMap` stays untouched). Drag in one `SM_Mannequin` and
+        one `StarterContent/Shapes/Shape_Plane`, both at Z = -5000
+        (50m underground). Build → Build Options → **Build Reflection
+        Captures** (else water renders black). Save.
+      - The packs also rewrite `Config/DefaultInput.ini` (same values,
+        new format, plus Third Person controls) - restored with
+        `git checkout -- Unreal/Environments/Blocks/Config`; nothing needs
+        them.
+      Why the hidden copies: in `-game` mode Unreal's asset registry
+      doesn't scan the disk ("took 0.0014 seconds to start up"), so AirSim
+      can only spawn assets the level has loaded - 33 before, 35 with
+      SARMap. `backends/airsim.sh` opens `/Game/SAR/SARMap` when it exists.
+      Scripted from there (`airsim_tool.py`): `target` places a lying
+      Mannequin (pivot at the feet, body ~1.8m back from it once pitched
+      +90°, so placed by its centre; no collision, so set at the ground
+      height the physics boxes settled at, z≈1.02) with a heading, falling
+      back to the box off SARMap; `river` lays 3m-wide `Shape_Plane` strips
+      with `M_Water_Lake` (`simSetObjectMaterial` needs a plain Material's
+      full path) along `make_risk_map.py`'s polyline, each 5mm above the
+      previous (equal heights flicker where they overlap). `test-vision`
+      now uses Mannequins at 30/120/250°, `demo-flood` lays its river.
+      Checked from above (camera lifted to 8m/20m): person and water where
+      expected, image orientation right; at 20m a person is ~30x8 px at
+      640x360 (~90x25 at the GoPro's 1920x1080 - the real detector needs
+      full resolution or lower flight).
+      - First Mannequin run: all 3 found and reached, but 4 reports - drone
+        1 saw a person while climbing at 1.2m and reported it 2.2m off, so
+        the later correct sighting counted as a second person. Fixed in
+        `vision_bridge.py`: frames count only at >=2.5m and |vz|<0.3m/s,
+        and a target is reported once 2 sightings agree within 0.75m, at
+        their average. Two runs after: exactly 3 reports each, 0.02-0.30m
+        off, all reached (sightings median 0.11m).
+   5. Next: a real person detector on the Scene image in place of the
+      segmentation (`detect_blobs`), at full resolution and higher altitude
+      / larger area than the 3m / 6m coordination tests; floodwater that
+      looks like floodwater (brown, not a clear lake).
