@@ -854,9 +854,14 @@ AirSim's world frame is NED with its origin at PlayerStart (drone 0's
 spawn), so shared (x, y) = AirSim (x, y), no swap. `simGetVehiclePose` is
 relative to each vehicle's own spawn, so the tool adds it back - confirmed:
 on the ground, drone 1 read (5.00, 5.00), 7.07m from drone 0.
-`tools/airsim/settings_1drone.json` is a hand-copyable one-drone version
-for manual tests (`PX4_SYS_AUTOSTART=10016 PX4_SIM_HOST_ADDR=<windows ip>
-./build/px4_sitl_default/bin/px4 -i 0`).
+For a manual one-drone test, generate the settings with the same code
+`sim.sh` uses, so they carry every fix (the hand-copied
+`settings_1drone.json` used for the first flight lacked the GPS latency
+fix below and was removed 2026-10-15):
+`python3 tools/airsim/airsim_tool.py settings --spawn=0.0,0.0 --host
+<windows ip> > /mnt/c/Users/<you>/Documents/AirSim/settings.json`, start
+Blocks, then `PX4_SYS_AUTOSTART=10016 PX4_SIM_HOST_ADDR=<windows ip>
+./build/px4_sitl_default/bin/px4 -i 0`.
 
 First live `SIM=airsim sim.sh test-x`: both armed on the first attempt,
 both reached both targets, closest **2.33m**, PX4's simulated battery
@@ -1177,8 +1182,31 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
 6. **Done 2026-10-13** — crossing-paths test against a hovering
    neighbor done, stall found and fixed (Test C, see "Hard floor for real
    vehicles"); both drones moving through each other's paths found a real
-   gap (1.24m), fixed and confirmed live 5/5 at ≥1.72m (Test X). Next:
-   AirSim planning: AirSim can run on the same PX4 SITL in place of Gazebo, so the
-   coordination node's DDS/MAVLink paths should carry over; the real new
-   work is a vision → `detect_target` bridge (detection pixel → world
-   position via drone pose and camera geometry).
+   gap (1.24m), fixed and confirmed live 5/5 at ≥1.72m (Test X).
+7. **AirSim — in progress.** Done 2026-10-13: AirSim backend (`SIM=airsim`,
+   see "Simulator backends"), GPS latency fix, `test-x` 8/8 at ≥1.56m.
+   Remaining, in order:
+   1. ~~Parity~~ — done 2026-10-15, every `sim.sh` test once in AirSim:
+      `test-search` (each target to the closer drone, 2.77m), `test-bids`
+      (one cluster per drone, 3.03m), `test-battery` (drone 1 bid 0.207 vs
+      0.697 at 35%, landed at home at reserve, 1.62m), `test-c` (around the
+      hovering drone to (10,10), 1.80m), `demo-flood` (GIF renders as
+      before, 3.87m), `test-x --headless` (`-RenderOffScreen` + `ViewMode
+      NoDisplay`; still real time - battery 90→60% in 18.0s - 1.98m).
+      `test-handoff` first handed off nothing: drone 1 finished its pair at
+      (0,8)/(1,9) in ~6s, before its battery reached reserve (~8s here), so
+      its clusters moved to ~13m out, (-5,13)/(-4,14) and (13,-5)/(14,-4).
+      Then drone 1 handed off `[1, 2]`, flew home and landed; drone 0 took
+      target 2 at once and target 1 when its 3-task bundle had room, and
+      reached all four (1.75m). Also fixed `test-battery`'s message, which
+      claimed drone 0 ends up with all 4 - a drone holds 3 at a time.
+   2. Nadir camera per drone (87° HFOV, GoPro-like) and image + PX4 pose
+      logging; check AirSim still keeps real time with two cameras (battery
+      drain timing, as in the GPS investigation).
+   3. A scene with people and water (Blocks has neither; target markers are
+      debug points a camera can't see) - likely a small UE 4.27 scene.
+   4. Vision → `detect_target` bridge: person detection on frames, pixel →
+      ground via pose and camera geometry (reuse `flood_grid.py`'s flat-ground
+      projection), then a test driven by real detections instead of scripted
+      `detect`. Needs higher altitude / larger area than the 3m / 6m
+      coordination tests.

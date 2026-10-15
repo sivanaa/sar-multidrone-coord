@@ -320,7 +320,7 @@ test_battery() {
   detect 0 8 0; detect 1 9 0; detect 8 0 0; detect 9 1 0
   sleep 4
   say "drone 1 battery -> 20% (reserve is 25%): it should hand off its targets,"
-  say "fly home to (5, 5) and land; drone 0 should end up with all 4."
+  say "fly home to (5, 5) and land; drone 0 takes the rest (it holds 3 at a time)."
   tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_MIN_PCT 20" Enter
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
 }
@@ -334,15 +334,18 @@ test_handoff() {
   wait_airborne 0 && wait_airborne 1 || return 1
   say "both searching for 15s..."
   sleep 15
-  # Both healthy, so drone 1 wins its share (one cluster, as in test-bids)...
-  marker 0 8 1 0 0; marker 1 9 1 0 0; marker 8 0 0 1 0; marker 9 1 0 1 0
-  detect 0 8 0; detect 1 9 0; detect 8 0 0; detect 9 1 0
+  # Both healthy, so drone 1 wins its share (one cluster each, as in
+  # test-bids)... The clusters sit ~13m out from the search area's centre:
+  # at test-bids' (0,8)/(8,0) drone 1 finished its pair in ~6s, before
+  # its battery reached reserve (~8s in AirSim), so there was nothing to
+  # hand off (2026-10-15; Gazebo needed four tries for the same reason).
+  marker -5 13 1 0 0; marker -4 14 1 0 0; marker 13 -5 0 1 0; marker 14 -4 0 1 0
+  detect -5 13 0; detect -4 14 0; detect 13 -5 0; detect 14 -4 0
   # ...then runs low on the way to them - right away and near-instantly
-  # (1s full-to-empty): with a 3s wait and a 10s drain, drone 1 finished
-  # its nearby pair before reaching reserve, so there was nothing to hand
-  # off (2026-10-06).
+  # (1s full-to-empty).
+  say "targets: red (-5,13)+(-4,14), green (13,-5)+(14,-4), far out on purpose."
   say "drone 1 battery -> 20% mid-flight: it should hand its targets to drone 0,"
-  say "fly home to (5, 5) and land; drone 0 should end up doing all 4."
+  say "fly home to (5, 5) and land; drone 0 should end up doing all 4 (3 at a time)."
   tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_DRAIN 1" Enter
   tmux send-keys -t "$SESSION:px4_1" "param set SIM_BAT_MIN_PCT 20" Enter
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
