@@ -57,8 +57,8 @@ ON_GROUND_ALT_M = 0.3  # PX4 altitude below which a drone counts as landed
 class PoseCache(Node):
     """Latest PX4 position estimate per drone, in the shared frame."""
 
-    def __init__(self, spawns):
-        super().__init__('airsim_frame_logger')
+    def __init__(self, spawns, node_name='airsim_frame_logger'):
+        super().__init__(node_name)
         from px4_msgs.msg import VehicleLocalPosition
         qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,

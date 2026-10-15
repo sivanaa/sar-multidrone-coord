@@ -26,6 +26,8 @@
 #   bash sim.sh test-b [--headless]  normal spawn, both nodes, two targets
 #   bash sim.sh test-c [--headless]  head-on crossing: drone 1 hovers in drone 0's path
 #   bash sim.sh test-x [--headless]  both drones fly through each other's paths head-on, twice
+#   SIM=airsim bash sim.sh test-vision [--headless]  targets are objects the cameras
+#                                    must find; no scripted detections
 #   bash sim.sh up [--headless]      just the sim (Gazebo, PX4 x2, agents), no nodes
 #   bash sim.sh nodes                both coordination nodes + distance monitor
 #   bash sim.sh detect X Y [N] [TYPE] target at shared-frame (X,Y), seen by drone N (default 0)
@@ -49,6 +51,8 @@ MISSION_LOG="$RUNS/current_mission.jsonl"  # sim.sh demo records here while runn
 RISK_MAP="$RUNS/current_risk_map.json"  # sim.sh demo-flood's flood map while running
 TRUTH_LOG="$RUNS/current_truth.jsonl"  # true drone positions, if the backend logs them
 FRAMES_DIR="$RUNS/current_frames"  # CAMERA=WxH runs: nadir frames + poses
+TARGETS_LOG="$RUNS/current_targets.jsonl"  # test-vision: where targets really are
+DETECTIONS_LOG="$RUNS/current_detections.jsonl"  # test-vision: what cameras saw
 VIDEO_DIR=/mnt/c/Users/UAV_group/Videos  # sim.sh render copies the GIF here (Windows side)
 SELF="$(realpath "$0")"
 ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup.bash"
@@ -101,6 +105,12 @@ save_run() {  # every window's full scrollback -> ~/sim_runs/<time>_<test>/
   # Simulator ground truth, from backends that log it (AirSim's distance
   # watch) - compare with mission.jsonl's believed positions.
   [ -f "$TRUTH_LOG" ] && mv "$TRUTH_LOG" "$dir/truth.jsonl"
+  if [ -f "$TARGETS_LOG" ]; then  # test-vision
+    tmux send-keys -t "$SESSION:vision" C-c 2>/dev/null
+    sleep 1
+    mv "$TARGETS_LOG" "$dir/targets.jsonl"
+    [ -f "$DETECTIONS_LOG" ] && mv "$DETECTIONS_LOG" "$dir/detections.jsonl"
+  fi
   if [ -d "$FRAMES_DIR" ]; then  # CAMERA=WxH runs
     tmux send-keys -t "$SESSION:camera" C-c 2>/dev/null
     sleep 1
@@ -371,6 +381,32 @@ test_handoff() {
   say "watch: bash $SELF attach -> Ctrl+b w -> coord0 / coord1 / dist"
 }
 
+test_vision() {  # cameras find the targets - no scripted detections
+  if ! declare -F backend_target >/dev/null \
+      || ! declare -F backend_vision_bridge >/dev/null; then
+    say "test-vision needs a simulator with cameras: SIM=airsim"
+    return 1
+  fi
+  CAMERA=${CAMERA:-640x360}  # the nadir cameras (also saves frames)
+  up "$@" || return 1
+  tmux set-environment -t "$SESSION" RUN_NAME test-vision
+  mkdir -p "$RUNS" && rm -f "$TARGETS_LOG" "$DETECTIONS_LOG"
+  # Person-sized boxes lying in the search area, before anyone takes off.
+  say "placing 3 targets: (1, 8), (8, 2), (6, 7) - nobody is told where."
+  backend_target sar_target_1 1 8 >> "$TARGETS_LOG"
+  backend_target sar_target_2 8 2 >> "$TARGETS_LOG"
+  backend_target sar_target_3 6 7 >> "$TARGETS_LOG"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
+  node 0
+  node 1
+  distance_window
+  window vision "$ROS_ENV && $(backend_vision_bridge "$DETECTIONS_LOG")"
+  wait_airborne 0 && wait_airborne 1 || return 1
+  say "both searching. Each target a camera finds is reported (window vision),"
+  say "bid on and flown to (coord0/coord1: 'reached target N'). Pass: all 3 reached."
+  say "watch: bash $SELF attach -> Ctrl+b w -> vision / coord0 / coord1"
+}
+
 test_x() {  # both drones flying, paths crossing head-on, twice
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-x
@@ -458,6 +494,7 @@ case "${1:-}" in
   test-b) shift; test_b "$@" ;;
   test-c) shift; test_c "$@" ;;
   test-x) shift; test_x "$@" ;;
+  test-vision) shift; test_vision "$@" ;;
   detect) shift; detect "$@" ;;
   marker) shift; marker "$@" ;;
   distance) bash "$REPO/ros2_ws/tools/drone_distance.sh" ;;

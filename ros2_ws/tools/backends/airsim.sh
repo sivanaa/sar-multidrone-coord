@@ -79,3 +79,16 @@ backend_camera_logger() {  # backend_camera_logger OUT_DIR - optional: prints th
   for n in "${!SPAWN_X[@]}"; do spawns+=" --spawn=${SPAWN_X[n]},${SPAWN_Y[n]}"; done
   echo "python3 $AIRSIM_DIR/frame_logger.py --host $AIRSIM_HOST$spawns --out $1"
 }
+
+backend_target() {  # backend_target NAME X Y - optional: a real target object at
+  # shared (X, Y) that cameras can see (vs backend_marker, drawn on screen
+  # only). Prints its settled position as one JSON line.
+  airsim_tool target "$1" "$2" "$3"
+}
+
+backend_vision_bridge() {  # backend_vision_bridge LOG - optional: prints the
+  # command for the camera -> detect_target bridge (sim.sh test-vision).
+  local spawns="" n
+  for n in "${!SPAWN_X[@]}"; do spawns+=" --spawn=${SPAWN_X[n]},${SPAWN_Y[n]}"; done
+  echo "python3 $AIRSIM_DIR/vision_bridge.py --host $AIRSIM_HOST$spawns --log $1"
+}

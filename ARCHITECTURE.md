@@ -1231,10 +1231,41 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
       Still unverified: that image top really is the drone's forward
       direction in the rendered scene (needs a recognisable object - step
       3).
-   3. A scene with people and water (Blocks has neither; target markers are
-      debug points a camera can't see) - likely a small UE 4.27 scene.
-   4. Vision → `detect_target` bridge: person detection on frames, pixel →
-      ground via pose and camera geometry (reuse `flood_grid.py`'s flat-ground
-      projection), then a test driven by real detections instead of scripted
-      `detect`. Needs higher altitude / larger area than the 3m / 6m
+   3. ~~Vision → `detect_target` bridge~~ — done 2026-10-15, done before
+      the scene step (swapped) so the chain is proven without Unreal Editor
+      work: `SIM=airsim sim.sh test-vision`. Targets are real objects
+      (`airsim_tool.py target`: Blocks' `1M_Cube_Chamfer` scaled to a lying
+      person, 0.6 x 1.7 x 0.3m, dropped with physics so it settles on the
+      ground; true positions saved to the run's `targets.jsonl`). Nobody is
+      told where they are. `tools/airsim/vision_bridge.py`, per drone at
+      2Hz: stabilize the nadir camera, take AirSim's segmentation image
+      (targets have their own ID, everything else is relabelled
+      background), find blobs not cut by the frame edge, turn each centre
+      pixel into a ground position with the PX4 pose and
+      `flood_grid.Camera`, and report new ones (>2m from any target any
+      drone reported) via that drone's `detect_target` service; every
+      sighting goes to `detections.jsonl`. Segmentation = an exact
+      detector, so this proves pose, projection, reporting and allocation;
+      `detect_blobs` is the piece a real person detector replaces.
+      - Offline round trip (draw where `Camera.project` says, detect,
+        project back), 300 random poses at 3-20m: within 0.07m.
+      - First live run: all 3 found by camera, bid on, reached; reported
+        0.15-0.16m off; 41 sightings median 0.08m but **8% too close to
+        the drone** - PX4 altitude is measured from the vehicle origin at
+        takeoff, which sits on landing gear: the camera is ~0.24m higher
+        above ground than PX4's altitude says (`CAMERA_CLEARANCE_M`; a
+        real drone needs its own value). Also confirms image top = drone
+        forward (a flipped image would be metres off).
+      - After the fix: all 3 found and reached again; reported 0.06, 0.09,
+        0.39m off (the 0.39m was a first sighting); 133 sightings median
+        0.10m, max 0.39m, scale error +1.5%.
+      - Later: report on a second, more central sighting to cut the
+        first-sighting error.
+   4. Next: a scene with people and water (Blocks has neither) - one
+      guided Unreal Editor session to add Starter Content (water
+      materials) and the Mannequin to the Blocks project, then everything
+      scripted (`simSpawnObject` / `simSetObjectMaterial` exist in 1.8.1):
+      people at target positions, a water strip along `make_risk_map.py`'s
+      river. Then a real person detector on the Scene image in place of
+      segmentation, and higher altitude / larger area than the 3m / 6m
       coordination tests.

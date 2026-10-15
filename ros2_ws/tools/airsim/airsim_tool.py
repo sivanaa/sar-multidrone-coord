@@ -9,6 +9,9 @@ on Windows through its RPC API, port 41451).
       print vehicle PX4_N's true position as "X Y" in the shared frame
   marker X Y R G B --host IP
       draw a persistent coloured point at shared (X, Y), 0.5m up
+  target NAME X Y --host IP
+      spawn a person-sized target box at shared (X, Y), labelled for the
+      segmentation camera; prints its settled position as one JSON line
   watch A B --spawn=X,Y [--spawn=X,Y ...] --host IP [--hz 10]
       live distance between drones A and B, drone_distance.sh's format
 
@@ -52,6 +55,14 @@ SENSORS = {
 CAMERA_NAME = 'nadir'
 CAMERA_HFOV_DEG = 87.0
 CAMERA_Z_M = 0.1  # mounted 0.1m below the vehicle's origin (NED: +down)
+# Camera height above the ground with the drone landed. PX4's altitude is
+# measured from where the vehicle's origin was at takeoff, which sits on the
+# landing gear: in Blocks a landed drone's origin is at z=0.68 and the
+# ground at z~1.02 (targets settle with their 0.3m-tall centres at 0.87),
+# so the camera, CAMERA_Z_M below the origin, is ~0.24m above the ground at
+# PX4 altitude 0. Leaving it out put every detection ~8% too close to the
+# drone (first test-vision, 2026-10-15). A real drone needs its own value.
+CAMERA_CLEARANCE_M = 0.24
 
 
 def nadir_camera(width, height):
@@ -63,9 +74,14 @@ def nadir_camera(width, height):
     of the image while AirSim's reported orientation tracked the spin; -89
     instead of -90 didn't help). frame_logger.py stabilizes the camera
     itself before each capture, with quaternions (see stabilize_camera)."""
+    # Scene (0) is what a real camera sees; Segmentation (5) paints every
+    # object a flat colour by its segmentation ID - targets get their own
+    # (TARGET_SEG_ID), so vision_bridge.py can find them exactly while the
+    # rest of the pipeline is being proven. Each is rendered only on request.
     return {CAMERA_NAME: {
-        'CaptureSettings': [{'ImageType': 0, 'Width': width,
-                             'Height': height, 'FOV_Degrees': CAMERA_HFOV_DEG}],
+        'CaptureSettings': [
+            {'ImageType': t, 'Width': width, 'Height': height,
+             'FOV_Degrees': CAMERA_HFOV_DEG} for t in (0, 5)],
         'X': 0.0, 'Y': 0.0, 'Z': CAMERA_Z_M,
         'Pitch': -90.0, 'Roll': 0.0, 'Yaw': 0.0,
     }}
@@ -109,6 +125,31 @@ def settings(spawns, host, headless, camera=None):
 def client(host):
     import airsim
     return airsim.MultirotorClient(ip=host, port=API_PORT, timeout_value=5)
+
+
+# Stand-in for a person lying on the ground, until a scene with real people
+# exists: Blocks' 1m chamfered cube, scaled to 0.6 x 1.7 x 0.3m. Dropped from
+# just above the ground with physics on, so it settles wherever the ground
+# is (AirSim's ground sits ~0.7m below PlayerStart's height in Blocks).
+TARGET_ASSET = '1M_Cube_Chamfer'
+TARGET_SCALE = (0.6, 1.7, 0.3)
+TARGET_HEIGHT_M = TARGET_SCALE[2]
+TARGET_SEG_ID = 200
+TARGET_PREFIX = 'sar_target_'  # vision_bridge.py relabels these by regex
+
+
+def spawn_target(c, name, x, y):
+    """Spawn target `name` at shared (x, y); returns its settled (x, y, z)."""
+    import airsim
+    import time
+    name = c.simSpawnObject(
+        name, TARGET_ASSET,
+        airsim.Pose(airsim.Vector3r(x, y, 0.0), airsim.Quaternionr()),
+        airsim.Vector3r(*TARGET_SCALE), True)
+    c.simSetSegmentationObjectID(name, TARGET_SEG_ID, False)
+    time.sleep(2.0)  # let it fall and settle
+    p = c.simGetObjectPose(name).position
+    return (p.x_val, p.y_val, p.z_val)
 
 
 def shared_xy(c, n, spawn):
@@ -182,6 +223,11 @@ def main(argv=None):
     for name in ('x', 'y', 'r', 'g', 'b'):
         p.add_argument(name, type=float)
     p.add_argument('--host', required=True)
+    p = sub.add_parser('target')
+    p.add_argument('name')
+    p.add_argument('x', type=float)
+    p.add_argument('y', type=float)
+    p.add_argument('--host', required=True)
     p = sub.add_parser('watch')
     p.add_argument('a', type=int)
     p.add_argument('b', type=int)
@@ -204,6 +250,10 @@ def main(argv=None):
         if xy is None:
             return 1
         print(f'{xy[0]:.3f} {xy[1]:.3f}')
+    elif args.cmd == 'target':
+        x, y, z = spawn_target(client(args.host), args.name, args.x, args.y)
+        # one JSON line: sim.sh appends it to the run's targets.jsonl
+        print(json.dumps({'name': args.name, 'x': x, 'y': y, 'z': z}))
     elif args.cmd == 'watch':
         spawns = [tuple(float(v) for v in s.split(',')) for s in args.spawn]
         try:
