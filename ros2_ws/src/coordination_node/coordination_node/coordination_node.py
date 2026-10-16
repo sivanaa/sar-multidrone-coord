@@ -152,11 +152,10 @@ class CoordinationNode(Node):
         self.declare_parameter('area_center_y', 0.0)
         self.declare_parameter('area_radius', 10.0)
         # How far around itself a drone counts as having searched, and how
-        # long until a searched cell is worth searching again. 1.5m / 60s
-        # keeps two drones busy over a 6m-radius area (dry run: 95% covered
-        # in ~15s, then continuous revisits) without parking.
+        # long until a searched cell is worth searching again (see
+        # brain.REVISIT_AFTER_S for why 240s, not the original 60s).
         self.declare_parameter('sensor_radius', 1.5)
-        self.declare_parameter('revisit_after_s', 60.0)
+        self.declare_parameter('revisit_after_s', brain_module.REVISIT_AFTER_S)
         # Flood-risk map (coverage.load_risk_map format) weighting the
         # search toward high-risk ground; '' = every cell equal. Every drone
         # in a fleet should get the same file.

@@ -47,9 +47,10 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 '..', 'src', 'coordination_node'))
 from coordination_node.brain import (  # noqa: E402
-    STATE_RETURNING, TICK_S, DroneBrain)
+    REVISIT_AFTER_S, STATE_RETURNING, TICK_S, DroneBrain)
 from coordination_node.coverage import (  # noqa: E402
     CoverageMap, camera_footprint)
+from make_risk_map import point_segment_distance  # noqa: E402
 import search_baselines  # noqa: E402
 
 DT = 0.05  # vehicle physics step
@@ -132,14 +133,20 @@ class Mission:
     def __init__(self, seed, drones, targets, area_center, area_radius,
                  loss=0.0, latency=0.02, jitter=0.01, range_m=0.0,
                  detect_radius=1.5, max_time=300.0, verbose=False,
-                 sensor_radius=1.5, revisit_after_s=60.0, camera_alt=None,
-                 brain_footprint=False, search='pso'):
+                 sensor_radius=1.5, revisit_after_s=REVISIT_AFTER_S, camera_alt=None,
+                 brain_footprint=False, search='pso', dropout_s=None,
+                 river_people=None):
         """`camera_alt`: the drones' sensor is the nadir camera's ground
         rectangle at this altitude (coverage.camera_footprint) - for
         detection and the coverage metric; None = a detect_radius circle.
         `brain_footprint`: the brains' coverage maps use that rectangle
         too (else their sensor_radius circle). `search`: how drones search
-        (search_baselines.SEARCHES; 'pso' = what they fly)."""
+        (search_baselines.SEARCHES; 'pso' = what they fly). `dropout_s`:
+        at this time the last drone's battery drops below the reserve, so
+        it hands its tasks off and flies home (brain._check_battery).
+        `river_people`: a random river crosses the area, every brain gets
+        its flood-risk map (make_risk_map.py's shape), and this fraction
+        of the people are placed by that risk, the rest uniformly."""
         self.rng = random.Random(seed)
         random.seed(seed)  # pso.py draws from the module-level generator
         self.verbose = verbose
@@ -156,17 +163,24 @@ class Mission:
         self.sp = [tuple(s) for s in spawns]
         self.landed = [False] * drones
         self.flown = [0.0] * drones
+        self.dropout_s = dropout_s
+        self.risk = (self._make_river(area_center, area_radius)
+                     if river_people is not None else None)
         self.brains = [
             DroneBrain(i, s, area_center, area_radius, clock=lambda: self.t,
                        outbox=Outbox(self, i), sensor_radius=sensor_radius,
                        revisit_after_s=revisit_after_s, real_vehicle=True,
-                       footprint=self.footprint if brain_footprint else None)
+                       footprint=self.footprint if brain_footprint else None,
+                       risk=self.risk)
             for i, s in enumerate(spawns)]
-        half_widths = self.footprint or (detect_radius / math.sqrt(2),) * 2
+        self.search = search
+        self.area_center, self.area_radius = area_center, area_radius
+        self.half_widths = (self.footprint
+                            or (detect_radius / math.sqrt(2),) * 2)
         search_baselines.install(search, self.brains, spawns, area_center,
-                                 area_radius, half_widths, seed)
+                                 area_radius, self.half_widths, seed)
         self.targets = self._place_targets(targets, area_center, area_radius,
-                                           spawns)
+                                           spawns, river_people or 0.0)
         self.found_at = [None] * len(self.targets)
         self.reached_at = [None] * len(self.targets)
         self.task_target = {}  # task id -> index into targets
@@ -191,12 +205,38 @@ class Mission:
                     and abs(p[1] - pos[1]) <= self.footprint[1] - margin)
         return math.dist(p, pos) <= self.detect_radius - margin * math.sqrt(2)
 
-    def _place_targets(self, n, center, radius, spawns):
+    def _make_river(self, center, radius):
+        """Risk per 1m cell from a straight river at a random angle,
+        crossing within half a radius of the centre: exp(-(d / width)^2)
+        as make_risk_map.py, width a quarter radius (at least 2m)."""
+        a = self.rng.uniform(0.0, math.pi)
+        off = self.rng.uniform(-radius / 2, radius / 2)
+        ux, uy = math.cos(a), math.sin(a)
+        mid = (center[0] - uy * off, center[1] + ux * off)
+        ends = [(mid[0] - 2 * radius * ux, mid[1] - 2 * radius * uy),
+                (mid[0] + 2 * radius * ux, mid[1] + 2 * radius * uy)]
+        width = max(2.0, radius / 4)
+        self.river = ends
+        risk = {}
+        for cell in CoverageMap(center, radius).area_cells:
+            d = point_segment_distance((cell[0] + 0.5, cell[1] + 0.5), *ends)
+            r = math.exp(-(d / width) ** 2)
+            if r >= 0.01:
+                risk[cell] = r
+        return risk
+
+    def _place_targets(self, n, center, radius, spawns, river_fraction=0.0):
+        """`river_fraction` of them placed by flood risk (rejection
+        sampling on the risk map), the rest uniformly."""
         out = []
         while len(out) < n:
             r = radius * math.sqrt(self.rng.random())
             a = self.rng.uniform(-math.pi, math.pi)
             p = (center[0] + r * math.cos(a), center[1] + r * math.sin(a))
+            if len(out) < round(n * river_fraction):
+                cell = (math.floor(p[0]), math.floor(p[1]))
+                if self.rng.random() >= self.risk.get(cell, 0.0):
+                    continue
             if all(math.dist(p, s) > 2.0 for s in spawns) and all(
                     math.dist(p, q) >= 1.2 for q in out):
                 out.append(p)
@@ -297,6 +337,14 @@ class Mission:
             for i, b in enumerate(self.brains):
                 b.real_position = self._seen_pos(i)
             if step % TICK_EVERY == 0:
+                if self.dropout_s is not None and self.t >= self.dropout_s:
+                    if self.brains[-1].battery_remaining is None and (
+                            self.search == 'lawnmower'):
+                        search_baselines.replan_lawnmower(
+                            self.brains, range(len(self.brains) - 1),
+                            self.area_center, self.area_radius,
+                            self.half_widths)
+                    self.brains[-1].battery_remaining = 0.2  # < reserve
                 for i, b in enumerate(self.brains):
                     self._detect(i)
                     b.tick(TICK_S)
@@ -413,6 +461,16 @@ def main():
     p.add_argument('--search', choices=search_baselines.SEARCHES, default='pso',
                    help='search to fly: pso (the real one) or a baseline '
                         '(see search_baselines.py)')
+    p.add_argument('--dropout', type=float, metavar='SECONDS',
+                   help='the last drone hits its battery reserve then, '
+                        'hands its tasks off and flies home')
+    p.add_argument('--river', type=float, metavar='FRACTION',
+                   help='random river + flood-risk map for the brains; this '
+                        'fraction of the people placed by flood risk')
+    p.add_argument('--revisit', type=float, default=REVISIT_AFTER_S,
+                   metavar='SECONDS',
+                   help="brains' revisit_after_s: a searched cell is due again "
+                        'after this (default brain.REVISIT_AFTER_S)')
     p.add_argument('--max-time', type=float, default=300.0)
     p.add_argument('--verbose', action='store_true',
                    help='print every brain log line (use with --trials 1)')
@@ -433,11 +491,16 @@ def main():
                     detect_radius=a.detect_radius, max_time=a.max_time,
                     camera_alt=a.camera_alt or None,
                     brain_footprint=a.brain_footprint,
-                    search=a.search, verbose=a.verbose)
+                    revisit_after_s=a.revisit,
+                    search=a.search, dropout_s=a.dropout,
+                    river_people=a.river, verbose=a.verbose)
         results.append(m.run())
     print(f'{a.drones} drones, {a.targets} targets, area r={a.area[2]}m, '
           f'loss {a.loss:.0%}, latency {a.latency * 1000:.0f}ms, '
-          f'range {a.range or "unlimited"}, {a.search} search, {a.trials} missions')
+          f'range {a.range or "unlimited"}, {a.search} search, {a.trials} missions'
+          + (f', last drone leaves at {a.dropout:g}s' if a.dropout is not None else '')
+          + (f', river ({a.river:.0%} of people by flood risk)'
+             if a.river is not None else ''))
     print(summarize(results))
     if a.json:
         with open(a.json, 'w') as f:

@@ -124,6 +124,21 @@ class Greedy(_Baseline):
         return self.state.best_position
 
 
+def replan_lawnmower(brains, active, center, radius, half_widths):
+    """A drone left: re-split the whole area into strips for the `active`
+    drones (by where they are now) and start sweeping again. Told
+    instantly and for free (the simulator knows who left) - the best a
+    lawnmower can do; one that doesn't replan leaves the strip of a drone
+    that left unsearched (fleet simulator: people never found)."""
+    order = sorted(active, key=lambda i: (brains[i].pso.state.position[1],
+                                          brains[i].pso.state.position[0]))
+    for rank, i in enumerate(order):
+        p = brains[i].pso
+        p.waypoints = lawnmower_waypoints(rank, len(order), center, radius,
+                                          half_widths, p.state.position)
+        p.next = 0
+
+
 SEARCHES = ('pso', 'lawnmower', 'random', 'greedy')
 
 

@@ -369,7 +369,8 @@ def main():
     p.add_argument('--area', type=float, nargs=3, default=[4.0, 4.0, 6.0],
                    metavar=('CX', 'CY', 'R'), help='search area, as the nodes were launched')
     p.add_argument('--sensor-radius', type=float, default=1.5)
-    p.add_argument('--revisit', type=float, default=60.0)
+    p.add_argument('--revisit', type=float, default=240.0,
+                   help="the nodes' revisit_after_s (brain.REVISIT_AFTER_S)")
     p.add_argument('--frames-dir', help='also write numbered PNG frames here')
     p.add_argument('--risk-map', help='flood-risk map the nodes were given (risk layer)')
     a = p.parse_args()

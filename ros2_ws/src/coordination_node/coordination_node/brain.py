@@ -80,6 +80,19 @@ SEARCH_PATH_CLEARANCE_M = 2.5
 PATH_CONFLICT_PENALTY = 10.0
 SEARCH_CANDIDATES = 8
 SEARCH_LOG_EVERY_TICKS = 10  # 5s
+# Seconds until a searched cell is worth searching again (coverage.py;
+# half that on the highest flood risk). Was 60: fine over the 6m-radius
+# test area, which 2-4 drones cover in ~10-25s, but with fewer drones per
+# area cells went stale before the fleet had covered everything once, so
+# drones kept re-searching nearby/high-risk ground and never reached the
+# far corners. Fleet simulator 2026-10-16, r=12m, 60 missions: missions
+# with everyone reached 27/51/55/57 of 60 -> 60/59/60/60 (2 drones with
+# a drone leaving + river, 2 drones with a drone leaving, 2 with river, 3
+# with both), p90 time to reach all 150 -> 90s for 2 drones; medians
+# unchanged; at r=6m identical in every metric. 120/180s fixed less;
+# favouring never-searched cells (coverage.NEVER_SEEN_GAIN 3-10) fixed
+# the tail too but slowed medians 20-90%.
+REVISIT_AFTER_S = 240.0
 # Every REBROADCAST_S, re-send this drone's bundle state and every open
 # task it knows of. CBBA as first written only sent on a change, so a lost
 # message ("I released target 3", "target 3 is done", the detection itself)
@@ -123,7 +136,7 @@ CBBA_OUTBID_MARGIN = 0.2
 class DroneBrain:
 
     def __init__(self, drone_id, initial_xy, area_center, area_radius,
-                 clock, outbox, sensor_radius=1.5, revisit_after_s=60.0,
+                 clock, outbox, sensor_radius=1.5, revisit_after_s=REVISIT_AFTER_S,
                  risk=None, task_types=None, real_vehicle=False,
                  footprint=None):
         """`real_vehicle`: positions come from a flight controller

@@ -1454,9 +1454,48 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      swarm motion adds about nothing over flying straight at the coverage
      map's goal ("greedy") - the map does the work. (The lawnmower's lanes
      first missed the circle's edges, 4-10 missions in 60 unfinished;
-     fixed before these numbers.) Not yet measured: where an adaptive
-     search should win - drones leaving mid-search (a lawnmower strip is
-     then abandoned) and a non-uniform risk map.
+     fixed before these numbers.)
+   - **Where adaptive search wins: a drone leaving, and a flood-risk map**
+     (`fleet_sim.py --dropout 15`: the last drone hits its battery reserve
+     at 15s, hands off and flies home; `--river 0.8`: a random river per
+     mission, every drone given its flood-risk map, 80% of people placed
+     by that risk). r=12m, 4 people, 60 missions per cell; median / p90
+     seconds to reach everyone, missions finished of 60 if not all. The
+     lawnmower is the best version of it: when a drone leaves it re-splits
+     the whole area among the rest, told instantly and for free (without
+     re-planning it never searched that strip - 2 of 5 missions left
+     people unfound); it ignores the risk map, as a pre-planned sweep does.
+
+     | case | drones | PSO (ours) | lawnmower |
+     |---|---|---|---|
+     | normal | 2 | 56.0 / 90.5 | 65.5 / 81.5 |
+     | normal | 3 | 41.0 / 61.0 | 39.8 / 51.0 |
+     | normal | 4 | 29.2 / 54.0 | 32.5 / 45.0 |
+     | drone leaves | 2 | 92.5 / 183.5 (59/60) | 122.2 / 144.0 |
+     | drone leaves | 3 | 54.8 / 96.0 | 64.2 / 92.0 |
+     | drone leaves | 4 | 32.5 / 63.0 | 45.0 / 59.5 |
+     | river | 2 | 60.0 / 101.5 | 68.0 / 81.0 |
+     | river | 3 | 33.0 / 50.5 | 37.0 / 49.0 |
+     | river | 4 | 23.8 / 44.0 | 31.5 / 42.5 (59/60) |
+     | both | 2 | 78.8 / 160.5 | 116.5 / 142.0 |
+     | both | 3 | 36.5 / 78.0 | 56.5 / 91.5 |
+     | both | 4 | 23.5 / 47.5 | 42.5 / 60.5 |
+
+     PSO's median beats the lawnmower in 11 of 12 cells, by 25-45% when a
+     drone leaves and/or people cluster near the river; with both, at 3-4
+     drones, its p90 is better too. The lawnmower keeps the better p90
+     elsewhere - it guarantees covering everything once by a fixed time.
+   - **Search tail fixed by the revisit time** (`brain.REVISIT_AFTER_S`
+     60 -> 240s): the first run of the table above had PSO finishing only
+     27/60 (2 drones, both), 51/60 (2, drone leaves), 55/60 (2, river),
+     57/60 (3, both): with few drones per area, cells went stale (60s, 30s
+     on the river) before everything had been covered once, so drones
+     kept re-searching nearby and high-risk ground. Revisit 120 / 180 /
+     240s: 50 / 57 / 60 of 60 in the worst cell, medians unchanged; at the
+     6m live-test area identical in every metric (missions end in
+     10-25s). Favouring never-searched cells (`coverage.NEVER_SEEN_GAIN`
+     3 / 10) also finished more missions but slowed medians 20-90% - kept
+     off.
    - **Bundle size and discount against the pile-up** (one drone chaining
      3 people while another has none, seen live): swept
      `cbba.MAX_BUNDLE_SIZE` 3 / 2 x `cbba.DISCOUNT` 0.9 / 0.8 / 0.7 - 300

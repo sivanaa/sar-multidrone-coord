@@ -51,6 +51,12 @@ STRICT_FOOTPRINT = False
 # cells NEAREST the drone, plus random ones up to the requested count.
 # 0 = random only (the original rule).
 NEAREST_CANDIDATES = 0
+# A cell nobody has searched yet is worth this many times a stale one
+# (searched before, due again). 1 = no difference (the original rule).
+# Tried against the search's long tail (fleet simulator 2026-10-16): 3-10
+# finished more missions but slowed medians 20-90%; a longer revisit time
+# (brain.REVISIT_AFTER_S) fixed the tail at no cost, so this stays 1.
+NEVER_SEEN_GAIN = 1.0
 
 
 def camera_footprint(altitude_m, hfov_deg=87.0, aspect=16 / 9):
@@ -137,8 +143,10 @@ class CoverageMap:
                 if math.dist(self._center((i + di, j + dj)), (x, y)) <= reach]
 
     def value(self, cell):
-        """What searching this cell is worth, by its flood risk."""
-        return 1.0 + RISK_VALUE_GAIN * self.risk.get(cell, 0.0)
+        """What searching this cell is worth, by its flood risk (and
+        NEVER_SEEN_GAIN if nobody has searched it yet)."""
+        gain = NEVER_SEEN_GAIN if cell not in self.last_seen else 1.0
+        return gain * (1.0 + RISK_VALUE_GAIN * self.risk.get(cell, 0.0))
 
     def revisit_after(self, cell):
         """Seconds until a searched cell is worth searching again -
@@ -187,7 +195,7 @@ class CoverageMap:
     def _sample(self, stale, count):
         if count <= 0:
             return []
-        if not self.risk:
+        if not self.risk and NEVER_SEEN_GAIN == 1.0:
             picked = random.sample(stale, min(count, len(stale)))
         else:
             # Drawn in proportion to value, so high-risk ground is offered
