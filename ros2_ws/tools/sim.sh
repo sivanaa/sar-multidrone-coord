@@ -26,6 +26,7 @@
 #   bash sim.sh test-b [--headless]  normal spawn, both nodes, two targets
 #   bash sim.sh test-c [--headless]  head-on crossing: drone 1 hovers in drone 0's path
 #   bash sim.sh test-x [--headless]  both drones fly through each other's paths head-on, twice
+#   NUM_DRONES=3 bash sim.sh test-fleet [--headless]  3 (or 4) drones, 5 people at once
 #   SIM=airsim bash sim.sh test-vision [--headless]  targets are objects the cameras
 #                                    must find; no scripted detections
 #   bash sim.sh up [--headless]      just the sim (Gazebo, PX4 x2, agents), no nodes
@@ -56,7 +57,7 @@ DETECTIONS_LOG="$RUNS/current_detections.jsonl"  # test-vision: what cameras saw
 VIDEO_DIR=/mnt/c/Users/UAV_group/Videos  # sim.sh render copies the GIF here (Windows side)
 SELF="$(realpath "$0")"
 ROS_ENV="source /opt/ros/humble/setup.bash && source $REPO/ros2_ws/install/setup.bash"
-NODE_ARGS="-p num_drones:=2 -p use_px4_offboard:=true -p hold_altitude:=3.0"
+NODE_ARGS="-p num_drones:=${NUM_DRONES:-2} -p use_px4_offboard:=true -p hold_altitude:=3.0"
 NODE_ARGS+=" -p area_center_x:=4.0 -p area_center_y:=4.0 -p area_radius:=6.0"
 
 say() { echo "[sim] $*"; }
@@ -124,8 +125,7 @@ save_run() {  # every window's full scrollback -> ~/sim_runs/<time>_<test>/
 down() {
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     save_run
-    tmux send-keys -t "$SESSION:coord0" C-c 2>/dev/null
-    tmux send-keys -t "$SESSION:coord1" C-c 2>/dev/null
+    for n in $DRONES; do tmux send-keys -t "$SESSION:coord$n" C-c 2>/dev/null; done
     sleep 2
     tmux kill-session -t "$SESSION"
   fi
@@ -147,21 +147,21 @@ up() {
   # Gazebo needs each PX4 up before the next joins its world; AirSim may
   # not step its clock until every vehicle has connected, so there all
   # PX4s start first (BACKEND_PX4_TOGETHER).
-  for n in 0 1; do
+  for n in $DRONES; do
     say "starting PX4 instance $n..."
     env=$(backend_px4_env "$n" "${SPAWN_X[n]}" "${SPAWN_Y[n]}") || return 1
     window "px4_$n" "cd $PX4 && PX4_UXRCE_DDS_PORT=$((8888 + n)) $env ./build/px4_sitl_default/bin/px4 -i $n"
     [ -n "${BACKEND_PX4_TOGETHER:-}" ] && { sleep 2; continue; }
     wait_for "px4_$n" 'pxh>' 90 || { say "PX4 $n didn't start - look at window px4_$n."; return 1; }
   done
-  for n in 0 1; do
+  for n in $DRONES; do
     wait_for "px4_$n" 'pxh>' 90 || { say "PX4 $n didn't start - look at window px4_$n."; return 1; }
     window "agent$n" "$AGENT udp4 -p $((8888 + n))"
   done
 
   # Runtime-only PX4 settings, needed after every launch (ARCHITECTURE.md
   # "Required in each PX4 shell after every launch").
-  for n in 0 1; do
+  for n in $DRONES; do
     tmux send-keys -t "$SESSION:px4_$n" "param set NAV_DLL_ACT 0" Enter
     backend_px4_setup "$n"
     # PX4 SITL saves every `param set` to its parameters.bson and loads it
@@ -171,7 +171,7 @@ up() {
     tmux send-keys -t "$SESSION:px4_$n" "param set SIM_BAT_DRAIN 60" Enter
     tmux send-keys -t "$SESSION:px4_$n" "param set SIM_BAT_MIN_PCT 50" Enter
   done
-  for n in 0 1; do
+  for n in $DRONES; do
     wait_for "px4_$n" 'Ready for takeoff' 60 \
       || say "PX4 $n hasn't said 'Ready for takeoff' yet - carrying on (nodes retry ARM)."
   done
@@ -184,7 +184,7 @@ node() {  # node N [EXTRA ROS ARGS for this drone only] - starts at its spawn po
 
 distance_window() {  # every test calls this once its nodes are up
   mkdir -p "$RUNS" && rm -f "$TRUTH_LOG"
-  window dist "SIM=$SIM TRUTH_LOG=$TRUTH_LOG bash $REPO/ros2_ws/tools/drone_distance.sh"
+  window dist "SIM=$SIM NUM_DRONES=$NUM_DRONES TRUTH_LOG=$TRUTH_LOG bash $REPO/ros2_ws/tools/drone_distance.sh"
   camera_window
 }
 
@@ -272,7 +272,7 @@ demo() {  # the whole hybrid approach in one recorded run, for presenting
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME demo
   mkdir -p "$RUNS"
-  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones $NUM_DRONES --out $MISSION_LOG"
   node 0
   node 1
   distance_window
@@ -302,7 +302,7 @@ demo_flood() {  # search weighted by a synthetic flood-risk map, recorded
   python3 "$REPO/ros2_ws/tools/make_risk_map.py" "$RISK_MAP" || return 1
   # Simulators with a scene to show it in (AirSim) lay water along the river.
   declare -F backend_river >/dev/null && backend_river "$RISK_MAP"
-  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones $NUM_DRONES --out $MISSION_LOG"
   NODE_EXTRA="-p risk_map_file:=$RISK_MAP"
   node 0
   node 1
@@ -399,7 +399,7 @@ test_vision() {  # cameras find the targets - no scripted detections
   backend_target sar_target_1 1 8 30 >> "$TARGETS_LOG"
   backend_target sar_target_2 8 2 120 >> "$TARGETS_LOG"
   backend_target sar_target_3 6 7 250 >> "$TARGETS_LOG"
-  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones $NUM_DRONES --out $MISSION_LOG"
   node 0
   node 1
   distance_window
@@ -410,6 +410,27 @@ test_vision() {  # cameras find the targets - no scripted detections
   say "watch: bash $SELF attach -> Ctrl+b w -> vision / coord0 / coord1"
 }
 
+test_fleet() {  # NUM_DRONES=3 or 4: the whole fleet searches, 5 people at once
+  up "$@" || return 1
+  tmux set-environment -t "$SESSION" RUN_NAME "test-fleet-$NUM_DRONES"
+  mkdir -p "$RUNS"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones $NUM_DRONES --out $MISSION_LOG"
+  for n in $DRONES; do node "$n"; done
+  distance_window
+  for n in $DRONES; do wait_airborne "$n" || return 1; done
+  say "$NUM_DRONES drones searching for 15s..."
+  sleep 15
+  # One near each edge of the 6m-radius area, plus a close pair (1.6m
+  # apart, as people can be) - exercises duplicate merging and the 1m
+  # arrival radius as well as the split across the fleet.
+  marker 2 9 1 0 0; marker 9 2 0 1 0; marker -1 3 0 0 1
+  marker 8 8 1 0 1; marker 9.2 6.9 1 0 1
+  detect 2 9 0; detect 9 2 0; detect -1 3 0; detect 8 8 0; detect 9.2 6.9 0
+  say "5 people: (2,9) (9,2) (-1,3) and a close pair (8,8)+(9.2,6.9)."
+  say "pass: all 5 reached, spread across drones, closest >= 1.5m."
+  say "watch: bash $SELF attach -> Ctrl+b w -> coord0..coord$((NUM_DRONES - 1)) / dist"
+}
+
 test_x() {  # both drones flying, paths crossing head-on, twice
   up "$@" || return 1
   tmux set-environment -t "$SESSION" RUN_NAME test-x
@@ -417,7 +438,7 @@ test_x() {  # both drones flying, paths crossing head-on, twice
   # crossing assignments is always shorter), so each drone may only take
   # its own target type: x0 for drone 0, x1 for drone 1.
   mkdir -p "$RUNS"
-  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones 2 --out $MISSION_LOG"
+  window recorder "$ROS_ENV && python3 $REPO/ros2_ws/tools/mission_recorder.py --num-drones $NUM_DRONES --out $MISSION_LOG"
   node 0 "-p task_types:=x0"
   node 1 "-p task_types:=x1"
   distance_window
@@ -485,7 +506,8 @@ test_c() {
 
 case "${1:-}" in
   up) shift; up "$@" ;;
-  nodes) node 0; node 1; distance_window; say "nodes started." ;;
+  nodes) for n in $DRONES; do node "$n"; done; distance_window; say "nodes started." ;;
+  test-fleet) shift; test_fleet "$@" ;;
   test-search) shift; test_search "$@" ;;
   test-bids) shift; test_bids "$@" ;;
   test-battery) shift; test_battery "$@" ;;

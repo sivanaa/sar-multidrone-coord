@@ -88,6 +88,14 @@ SEARCH_LOG_EVERY_TICKS = 10  # 5s
 # left a target unreached). Receivers ignore what they already know, so a
 # repeat costs bandwidth, not churn. 0 = only on change.
 REBROADCAST_S = 1.0
+# With each re-broadcast, raise the bids this drone holds to their value
+# from where it is now (cbba.refresh_bids), so a drone flying to a target
+# isn't outbid against the bid it won with, long since out of date.
+# Fleet simulator 2026-10-16, 80 missions, 4 drones at 60% loss: median
+# handovers per mission 5 -> 3, time to reach all p90 14.5 -> 11.5s, with
+# CBBA_OUTBID_MARGIN 0.2 worst handovers 21 -> 15; 3 drones similar, no
+# change without loss (little to fix there).
+CBBA_REFRESH_BIDS = True
 # CBBA settings the drones fly with (cbba.py has the plain-CBBA defaults,
 # 0, for its own tests): merge reports of one person within
 # CBBA_DUPLICATE_RADIUS_M, and take a task from another drone only with a
@@ -104,8 +112,12 @@ REBROADCAST_S = 1.0
 # got a task. The fleet simulator placed people >=2.5m apart with exact
 # positions and couldn't show it; it now adds 0.15m detection noise and
 # places people from 1.2m apart.
+# Margin 0.1 -> 0.2 with CBBA_REFRESH_BIDS: the only setting with every
+# target reached in all 80 missions at 3/4 drones, 0/60% loss (0.1 and 0
+# each missed one), fewest handovers. Alone, 0.1-0.3 made no difference -
+# the frozen held bid, not the margin, was the cause.
 CBBA_DUPLICATE_RADIUS_M = 1.0
-CBBA_OUTBID_MARGIN = 0.1
+CBBA_OUTBID_MARGIN = 0.2
 
 
 class DroneBrain:
@@ -390,7 +402,9 @@ class DroneBrain:
             self._rebroadcast()
 
     def _rebroadcast(self):
-        """See REBROADCAST_S."""
+        """See REBROADCAST_S and CBBA_REFRESH_BIDS."""
+        if CBBA_REFRESH_BIDS and self.state != STATE_RETURNING:
+            self.cbba.refresh_bids(self.pso.state.position)
         self.publish_bundle_state()
         for task in self.cbba.tasks.values():
             if task.task_id in self.cbba.completed_task_ids:

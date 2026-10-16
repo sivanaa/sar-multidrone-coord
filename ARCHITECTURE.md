@@ -1385,6 +1385,22 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      people, closest 2.89m; but target 4 still changed hands 4 times in 7s
      - each new bid was >10% higher (bids rise fast as a drone closes in),
      so the 0.1 margin is not enough there: larger margins to be measured.
+   - **Frozen bids, the real cause of the flip-flopping (2026-10-16):** in
+     the simulator, margins 0.1 / 0.2 / 0.3 gave the same results (80
+     missions per cell). A drone stored its bid only when it won a task;
+     flying closer, its real bid kept rising, but rivals compared fresh
+     bids against the old number. Now each re-broadcast raises the held
+     bids to their current value (`cbba.refresh_bids`,
+     `brain.CBBA_REFRESH_BIDS`; bids only rise, so consensus still
+     settles). 4 drones, 60% loss: median handovers 5 -> 3, worst 21 -> 15
+     with margin 0.2, p90 time to reach all 14.5 -> 11.0s; every target
+     reached in all 80 missions at 3/4 drones, 0/60% loss (now the
+     default: margin 0.2).
+   - **PSO parameters measured, kept:** inertia/cognitive/social 0.6/1.4/1.4
+     (ours) vs the standard constriction 0.729/1.494/1.494, 0.4/1.5/1.5,
+     0.8/1.0/1.0, at 2/3/4 drones, 80 missions each: all within ~0.5s on
+     time to find/reach all. The coverage map's goal picking does the
+     search work, so the swarm parameters matter little.
      `test-handoff` - drone 1 handed off [3, 4] at reserve, flew home and
      landed under its own control (no crash), drone 0 took both; closest
      1.80m.

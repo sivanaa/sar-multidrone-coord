@@ -200,3 +200,23 @@ def test_outbid_margin_stops_a_slightly_higher_bid_taking_a_task():
     held.outbid_margin = 0.1
     assert not held._outbids(1, bid)                       # needs > 0.77
     assert held._outbids(1, 0.80)
+
+
+def test_a_held_bid_rises_as_the_drone_closes_in_and_never_falls():
+    target = _task(1, 6.0, 0.0)
+    held = _agent(0, target)
+    held.build_bundle((0.0, 0.0))
+    won_with = held.winning_bids[1]
+    assert held.refresh_bids((4.0, 0.0))                   # 2m away now
+    assert held.winning_bids[1] > won_with
+    # A rival 3m away would have beaten the bid it won with, not this one.
+    rival = CbbaAgent(1)
+    rival.add_task(target)
+    rival.outbid_margin = 0.1
+    rival.receive_bundle_state(0, [1], [won_with], [0], [1.0])
+    assert rival._outbids(1, rival.bid_for(target, (3.0, 0.0)))
+    rival.receive_bundle_state(0, [1], [held.winning_bids[1]], [0], [2.0])
+    assert not rival._outbids(1, rival.bid_for(target, (3.0, 0.0)))
+    risen = held.winning_bids[1]
+    assert not held.refresh_bids((0.0, 0.0))               # flew away: kept
+    assert held.winning_bids[1] == risen

@@ -175,6 +175,31 @@ class CbbaAgent:
             return 0.0
         return self._best_insertion(task, current_position)[0]
 
+    def refresh_bids(self, current_position):
+        """Raise the winning bid of every task this drone holds to what it
+        is worth from where the drone is now (its marginal value in the
+        current path). Returns True if any bid rose.
+
+        A held bid used to stay at its value when won, while the drone
+        flew towards the task and its real bid kept rising, so any drone
+        passing nearby later outbid the frozen number - whatever the
+        OUTBID_MARGIN: live test-bids 2026-10-16, target 4 changed hands 4
+        times in 7s with a 10% margin. Bids only rise here, so consensus
+        still settles."""
+        changed = False
+        base = self.path_value(self.path, current_position)
+        now = time.time()
+        for task_id in self.bundle:
+            if self.winning_agent.get(task_id) != self.drone_id:
+                continue
+            without = [t for t in self.path if t != task_id]
+            bid = base - self.path_value(without, current_position)
+            if bid > self.winning_bids.get(task_id, 0.0):
+                self.winning_bids[task_id] = bid
+                self.update_time[task_id] = now
+                changed = True
+        return changed
+
     def mark_task_done(self, task_id):
         """Release a task this drone has actually finished (arrived at),
         as opposed to being outbid on (see receive_bundle_state's release
