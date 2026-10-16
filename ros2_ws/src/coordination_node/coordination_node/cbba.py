@@ -40,6 +40,19 @@ NOMINAL_SPEED_MPS = 2.0
 # sim runs are unaffected.
 BATTERY_FULL = 0.5
 BATTERY_RESERVE = 0.25
+# Two tasks closer than this are one person, reported twice: with the
+# camera's ~5.7 x 3.2m footprint, two drones can see the same person within
+# the same moment, before either hears the other's report (fleet simulator,
+# 2026-10-16: 11-21 duplicate tasks in 60 missions with no message loss).
+# Every drone keeps the lower id and forgets the other, so all agree
+# without any extra message. 0 = off.
+DUPLICATE_RADIUS_M = 0.0
+# To take a task from another drone, a bid must beat the current winning
+# bid by this fraction. Bids rise as a drone flies closer, so with no
+# margin two drones near one target kept taking it from each other (live
+# test-bids 2026-10-16: target 1 changed hands 4 times in 3s), each swap
+# able to turn a drone around. 0 = plain CBBA (any higher bid wins).
+OUTBID_MARGIN = 0.0
 
 
 def battery_value_scale(remaining):
@@ -61,7 +74,8 @@ class CbbaAgent:
     """One drone's CBBA state: its bundle/path, and its belief about every
     task it currently knows about (winning bids/agents/timestamps)."""
 
-    def __init__(self, drone_id, max_bundle_size=3, task_types=None):
+    def __init__(self, drone_id, max_bundle_size=3, task_types=None,
+                 duplicate_radius=None, outbid_margin=None):
         self.drone_id = drone_id
         self.max_bundle_size = max_bundle_size
         # Target types this drone can handle (e.g. only a drone carrying a
@@ -84,14 +98,46 @@ class CbbaAgent:
         # bids comparable across drones and keeps CBBA's diminishing-
         # marginal-gain property that its convergence relies on.
         self.value_scale = 1.0
+        self.merged = set()  # ids dropped as duplicates (duplicate_radius)
+        # None = the module defaults (plain CBBA); brain.py sets the values
+        # the drones fly with.
+        self.duplicate_radius = (DUPLICATE_RADIUS_M if duplicate_radius is None
+                                 else duplicate_radius)
+        self.outbid_margin = (OUTBID_MARGIN if outbid_margin is None
+                              else outbid_margin)
 
     def add_task(self, task: Task):
-        """Register a newly detected target as an available task."""
-        if task.task_id not in self.tasks:
-            self.tasks[task.task_id] = task
-            self.winning_bids.setdefault(task.task_id, 0.0)
-            self.winning_agent.setdefault(task.task_id, UNASSIGNED)
-            self.update_time.setdefault(task.task_id, time.time())
+        """Register a newly detected target as an available task. Returns
+        False if it was dropped as a duplicate of a known task."""
+        if task.task_id in self.tasks:
+            return True
+        if task.task_id in self.merged:
+            return False
+        if self.duplicate_radius > 0:
+            for other in list(self.tasks.values()):
+                if math.dist(other.position, task.position) > self.duplicate_radius:
+                    continue
+                if (other.task_id in self.completed_task_ids
+                        or other.task_id < task.task_id):
+                    self.merged.add(task.task_id)  # keep the known one
+                    return False
+                self._forget(other.task_id)  # the new one has the lower id
+        self.tasks[task.task_id] = task
+        self.winning_bids.setdefault(task.task_id, 0.0)
+        self.winning_agent.setdefault(task.task_id, UNASSIGNED)
+        self.update_time.setdefault(task.task_id, time.time())
+        return True
+
+    def _forget(self, task_id):
+        """Drop a task that turned out to duplicate another (see
+        DUPLICATE_RADIUS_M), withdrawing this drone's claim on it and on
+        anything queued after it."""
+        if task_id in self.bundle:
+            self._release_from(self.bundle.index(task_id), outbid=False)
+        for table in (self.tasks, self.winning_bids, self.winning_agent,
+                      self.update_time):
+            table.pop(task_id, None)
+        self.merged.add(task_id)
 
     def can_do(self, task):
         """Whether this drone can handle `task`'s target type at all."""
@@ -181,8 +227,12 @@ class CbbaAgent:
 
     def _outbids(self, task_id, bid):
         """Whether `bid` beats the current winner. An exact tie goes to the
-        lower drone id, so two drones with equal bids can't both hold on."""
+        lower drone id, so two drones with equal bids can't both hold on.
+        Taking a task another drone holds needs OUTBID_MARGIN more."""
         winning_bid = self.winning_bids.get(task_id, 0.0)
+        holder = self.winning_agent.get(task_id, UNASSIGNED)
+        if self.outbid_margin > 0 and holder not in (self.drone_id, UNASSIGNED):
+            return bid > winning_bid * (1.0 + self.outbid_margin)
         if bid != winning_bid:
             return bid > winning_bid
         return self.drone_id < self.winning_agent.get(task_id, UNASSIGNED)
@@ -235,6 +285,8 @@ class CbbaAgent:
         me, sender = self.drone_id, sender_id
         for task_id, their_bid, their_agent, their_time in zip(
                 known_task_ids, winning_bids, winning_agents, update_times):
+            if task_id in self.merged:
+                continue  # a duplicate this drone dropped
             our_bid = self.winning_bids.get(task_id, 0.0)
             our_agent = self.winning_agent.get(task_id, UNASSIGNED)
             our_time = self.update_time.get(task_id, 0.0)

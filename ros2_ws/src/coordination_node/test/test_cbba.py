@@ -165,3 +165,38 @@ def test_task_types_force_the_crossing_assignment():
 def test_no_task_types_means_any_type():
     agent = _agent(0, Task(1, (1.0, 0.0), 'anything', 0.9))
     assert agent.build_bundle((0.0, 0.0)) == [1]
+
+
+def test_duplicate_reports_merge_to_the_lower_id_on_every_drone(monkeypatch):
+    import coordination_node.cbba as cbba
+    monkeypatch.setattr(cbba, 'DUPLICATE_RADIUS_M', 2.0)
+    first, second = _task(7, 3.0, 3.0), _task(100002, 3.5, 3.2)
+    a, b = CbbaAgent(0), CbbaAgent(1)
+    assert a.add_task(first) and not a.add_task(second)     # heard 7 first
+    assert b.add_task(second)
+    b.build_bundle((3.0, 3.0))
+    assert b.bundle == [100002]
+    assert b.add_task(first)                                # lower id wins
+    assert 100002 not in b.tasks and b.bundle == []
+    assert set(a.tasks) == set(b.tasks) == {7}
+    assert not b.add_task(second)                           # stays dropped
+
+
+def test_a_report_near_a_finished_target_is_dropped(monkeypatch):
+    import coordination_node.cbba as cbba
+    monkeypatch.setattr(cbba, 'DUPLICATE_RADIUS_M', 2.0)
+    agent = _agent(0, _task(1, 1.0, 0.0))
+    agent.mark_task_done(1)
+    assert not agent.add_task(_task(2, 1.5, 0.0))
+
+
+def test_outbid_margin_stops_a_slightly_higher_bid_taking_a_task():
+    target = _task(1, 4.0, 0.0)
+    held = _agent(1, target)
+    held.receive_bundle_state(0, [1], [0.70], [0], [1.0])  # drone 0 holds it
+    bid = held.bid_for(target, (0.6, 0.0))
+    assert 0.70 < bid < 0.77                               # a bit higher
+    assert held._outbids(1, bid)                           # plain CBBA: take it
+    held.outbid_margin = 0.1
+    assert not held._outbids(1, bid)                       # needs > 0.77
+    assert held._outbids(1, 0.80)

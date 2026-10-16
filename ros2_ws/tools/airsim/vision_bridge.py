@@ -152,7 +152,7 @@ def main():
                         help='X,Y of drone 0, 1, ... (write as --spawn=X,Y)')
     parser.add_argument('--hz', type=float, default=2.0,
                         help='frames per second, per drone')
-    parser.add_argument('--dedupe', type=float, default=2.0,
+    parser.add_argument('--dedupe', type=float, default=1.0,
                         help='metres within which a detection is the same target')
     parser.add_argument('--min-pixels', type=int, default=40)
     parser.add_argument('--min-alt', type=float, default=2.5,

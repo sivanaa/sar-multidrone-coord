@@ -1307,3 +1307,84 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
       segmentation (`detect_blobs`), at full resolution and higher altitude
       / larger area than the 3m / 6m coordination tests; floodwater that
       looks like floodwater (brown, not a clear lake).
+8. **Strengthening PSO + CBBA (the project's core) — started 2026-10-16.**
+   Final day 2026-10-21.
+   - **Logic split from ROS:** everything a drone decides now lives in
+     `coordination_node/brain.py` (`DroneBrain`: search, bidding,
+     consensus, battery, navigation, collision floor), driven through a
+     clock and an "outbox"; `coordination_node.py` is the ROS shell
+     (parameters, message conversion, PX4/MAVLink). Moved, not rewritten.
+     Confirmed: 47 unit tests, and live `test-bids` in Gazebo on the new
+     code (one cluster per drone, all 4 reached, closest 2.95m).
+   - **Fleet simulator** `tools/fleet_sim.py`: N real DroneBrains as the
+     node drives them with a real vehicle (2Hz tick, 10Hz setpoint and
+     broadcast), vehicles tuned to Gazebo/AirSim measurements, a radio with
+     loss/latency/range, camera-rectangle detection (at 3m: 1.6 x 2.85m
+     half-extents, `coverage.camera_footprint`) with the vision bridge's
+     2m dedupe. ~0.1-0.2s per mission; `--set MOD.NAME=VALUE` overrides any
+     algorithm constant per experiment.
+   - **Search, 4 targets in the 6m-radius area, 60-100 missions each**
+     (time until every target found, median / worst 10%): 2 drones
+     16.8 / 26s, 3 drones 10.0 / 17.5s, 4 drones 8.5 / 11.5s - adding
+     drones helps roughly in proportion. A first run with a 1.5m-circle
+     detector showed a long tail (worst 10%: 82-130s), traced to coverage
+     marking cells up to ~2.2m away as searched - but with the real camera
+     footprint the tail is gone, so it was mostly a simulator artefact.
+     Kept as options, not defaults: coverage counting the camera rectangle
+     (`footprint=`), a strict circle (`STRICT_FOOTPRINT`, which stalls the
+     search), nearest-cell candidates (`NEAREST_CANDIDATES`) - each within
+     ~1s of the default.
+   - **CBBA under message loss, 60 missions each** (missions where every
+     target was reached in 200s): 3 drones 60/56/50/42 of 60 at
+     0/20/40/60% loss, 4 drones 60/56/49/40; 6m radio range 60 and 59.
+     Separation held throughout (worst 1.68m). Duplicate tasks (one
+     person reported twice, by two drones seeing it before hearing each
+     other) happen even without loss: 11 (3 drones) and 21 (4 drones) in
+     60 missions.
+   - **CBBA strengthened (2026-10-16), each measured on/off in the fleet
+     simulator, 60 missions per cell:**
+     - *Periodic re-broadcast* (`brain.REBROADCAST_S` = 1s): bundle state
+       and every open task re-sent; before, a lost message was never
+       repeated. Alone it took missions with every target reached from
+       42-50/60 to 60/60 at 40-60% loss, and cut the worst handover count
+       per mission from ~1,500 (two drones passing a task back and forth
+       on stale beliefs) to tens.
+     - *Duplicate merging* (`brain.CBBA_DUPLICATE_RADIUS_M`, cbba.py's
+       `duplicate_radius`): reports within the radius are one person;
+       every drone keeps the lower id. Removed wasted trips (a person
+       reached twice: 9-50 per 60 missions -> 0-2). First set to 2.0m;
+       live `test-bids` then merged its pairs of people 1.4m apart (2 of 4
+       never got a task), so 1.0m - between the bridge's detection error
+       (0.06-0.39m) and how close two people can be. The vision bridge's
+       "already reported" radius went 2.0 -> 1.0m for the same reason.
+     - *Bid hysteresis* (`brain.CBBA_OUTBID_MARGIN` = 0.1): taking a task
+       from another drone needs a 10% higher bid; against the flip-flopping
+       seen live (morning `test-bids`: target 1 changed hands 4 times in
+       3s as bids rose with proximity). Halves the remaining handovers.
+     - *Task arrival radius* (`brain.TASK_ARRIVAL_RADIUS_M` = 1.0m, home
+       landing stays 0.3m): with people placed 1.2m apart and 0.15m
+       detection noise (the simulator's harsher setting after the 2.0m
+       lesson), two drones given two close people deadlocked - each target
+       inside the other drone's 1.8m setpoint floor, both hovering 0.7m
+       short for the rest of the mission. 1m is well inside the camera's
+       footprint, and lets them serve close people from opposite sides.
+     - **Together, 3 / 4 drones, 4 people (missions where every target was
+       reached of 60; median time to reach all):** 0% loss 60 / 60 in
+       10.0 / 8.2s (plain CBBA 54 / 56 in 13.2 / 11.0s); 60% loss 59 / 60
+       (plain 46 / 40). Wasted trips 0 at 0% loss, 7-9 at 60% (plain
+       6-34); closest approach >=1.73m everywhere; ~2x the coordination
+       messages (1 small message per drone per second).
+   - **Bug found live:** the node's `log()` sent every severity through one
+     call, and rclpy caches a call site's severity - the first warning
+     ("battery at reserve") raised "Logger severity cannot be changed
+     between calls" and killed drone 1's node in `test-handoff`; PX4's
+     failsafe landed it. One call per severity now. The simulator can't
+     see this (no ROS logging) - live tests stay necessary.
+   - **Live, final code (Gazebo, 2026-10-16 afternoon):** `test-bids` -
+     all 4 people reached (2 per drone), the close pairs kept as two
+     people, closest 2.89m; but target 4 still changed hands 4 times in 7s
+     - each new bid was >10% higher (bids rise fast as a drone closes in),
+     so the 0.1 margin is not enough there: larger margins to be measured.
+     `test-handoff` - drone 1 handed off [3, 4] at reserve, flew home and
+     landed under its own control (no crash), drone 0 took both; closest
+     1.80m.

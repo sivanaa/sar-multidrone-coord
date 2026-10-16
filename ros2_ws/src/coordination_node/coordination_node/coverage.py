@@ -32,6 +32,34 @@ import random
 RISK_VALUE_GAIN = 3.0
 RISK_REVISIT_SPEEDUP = 0.5
 
+# What a drone counts as searched. Three models (fleet simulator,
+# 2026-10-16):
+# - circle (default, the original rule): cells whose grid offset from the
+#   drone's own cell is within sensor_radius. Measured from the cell, not
+#   the drone, so cells up to ~2.2m away count as seen by a 1.5m sensor;
+#   with detection also a 1.5m circle, targets sat unfound in "searched"
+#   cells until they went stale 60s later (90% covered in 10-24s, yet 1
+#   mission in 10 took 82-130s to find its last target).
+# - circle, STRICT_FOOTPRINT: only cells wholly within sensor_radius of the
+#   exact position (~0.8m effective) - honest, but too few cells per tick
+#   for the search's tuning: no mission found every target in 300s.
+# - footprint=(half_north, half_east): the camera's ground rectangle (the
+#   drones always face north), cells wholly inside it - what the nadir
+#   camera actually sees; see camera_footprint().
+STRICT_FOOTPRINT = False
+# Candidate search goals offered to PSO each tick: this many of the stale
+# cells NEAREST the drone, plus random ones up to the requested count.
+# 0 = random only (the original rule).
+NEAREST_CANDIDATES = 0
+
+
+def camera_footprint(altitude_m, hfov_deg=87.0, aspect=16 / 9):
+    """(half_north, half_east) metres of ground a nadir camera sees from
+    altitude_m with its image top toward north: GoPro Linear 87° HFOV,
+    16:9 (flood_grid.py's Camera) - at 3m about 1.6 x 2.85."""
+    half_width = altitude_m * math.tan(math.radians(hfov_deg) / 2)
+    return (half_width / aspect, half_width)
+
 
 def load_risk_map(path):
     """Read a risk map: JSON {"cell_size": 1.0, "cells": [[i, j, risk], ...]},
@@ -48,11 +76,15 @@ def load_risk_map(path):
 class CoverageMap:
 
     def __init__(self, area_center, area_radius, cell_size=1.0,
-                 sensor_radius=2.0, revisit_after_s=90.0, risk=None):
+                 sensor_radius=2.0, revisit_after_s=90.0, risk=None,
+                 footprint=None):
+        """`footprint`: (half_north, half_east) of a rectangular sensor
+        (camera_footprint()); None = a sensor_radius circle."""
         self.area_center = area_center
         self.area_radius = area_radius
         self.cell_size = cell_size
         self.sensor_radius = sensor_radius
+        self.footprint = footprint
         self.revisit_after_s = revisit_after_s
         self.risk = risk or {}  # cell -> flood risk 0-1 (missing = 0)
         self.last_seen = {}  # cell -> time it was last seen
@@ -82,7 +114,27 @@ class CoverageMap:
 
     def _cells_seen_from(self, x, y):
         i, j = self._cell(x, y)
-        return [(i + di, j + dj) for di, dj in self._footprint]
+        if self.footprint is not None:
+            # cells wholly inside the rectangle centred on (x, y)
+            half = self.cell_size / 2
+            hn, he = self.footprint[0] - half, self.footprint[1] - half
+            sn = int(math.ceil(self.footprint[0] / self.cell_size)) + 1
+            se = int(math.ceil(self.footprint[1] / self.cell_size)) + 1
+            out = []
+            for di in range(-sn, sn + 1):
+                for dj in range(-se, se + 1):
+                    cx, cy = self._center((i + di, j + dj))
+                    if abs(cx - x) <= hn and abs(cy - y) <= he:
+                        out.append((i + di, j + dj))
+            return out
+        if not STRICT_FOOTPRINT:
+            return [(i + di, j + dj) for di, dj in self._footprint]
+        reach = self.sensor_radius - self.cell_size * math.sqrt(0.5)
+        span = int(math.ceil(self.sensor_radius / self.cell_size)) + 1
+        return [(i + di, j + dj)
+                for di in range(-span, span + 1)
+                for dj in range(-span, span + 1)
+                if math.dist(self._center((i + di, j + dj)), (x, y)) <= reach]
 
     def value(self, cell):
         """What searching this cell is worth, by its flood risk."""
@@ -119,10 +171,22 @@ class CoverageMap:
                         - self.area_radius)
         return self.unexplored_near(x, y, now, claimed) - 2.0 * overreach
 
-    def sample_unexplored(self, count, now):
-        """Up to `count` random stale cell centers - candidate places to
-        search next, scored with fitness() by the caller."""
+    def sample_unexplored(self, count, now, near=None):
+        """Up to `count` stale cell centers - candidate places to search
+        next, scored with fitness() by the caller: the NEAREST_CANDIDATES
+        closest to `near` (when given), the rest random."""
         stale = [c for c in self.area_cells if self._stale(c, now)]
+        nearest = []
+        if near is not None and NEAREST_CANDIDATES > 0 and stale:
+            stale.sort(key=lambda c: math.dist(self._center(c), near))
+            nearest = [self._center(c) for c in stale[:NEAREST_CANDIDATES]]
+            stale = stale[NEAREST_CANDIDATES:]
+            count -= len(nearest)
+        return nearest + self._sample(stale, count)
+
+    def _sample(self, stale, count):
+        if count <= 0:
+            return []
         if not self.risk:
             picked = random.sample(stale, min(count, len(stale)))
         else:
