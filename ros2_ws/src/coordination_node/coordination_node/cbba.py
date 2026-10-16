@@ -105,6 +105,18 @@ class CbbaAgent:
                                  else duplicate_radius)
         self.outbid_margin = (OUTBID_MARGIN if outbid_margin is None
                               else outbid_margin)
+        # (drone m, task) -> the update time of m's own latest message
+        # saying it does NOT hold the task. A claim that m holds it, relayed
+        # by someone else and no newer than that, is stale - m has said so
+        # itself. The paper keeps timestamps per drone for its third-party
+        # rules; without any, an old claim kept circulating between the
+        # other drones and knocked the real holder off forever
+        # (tools/cbba_optimality.py 2026-10-16: 4 drones, 1 problem in 300
+        # never agreed, a person left unassigned). Stamping "heard from m"
+        # with the arrival time instead also dropped claims m made while
+        # its message was in flight (fleet simulator: worst handovers per
+        # mission 2 -> 14).
+        self.disowned = {}
 
     def add_task(self, task: Task):
         """Register a newly detected target as an available task. Returns
@@ -316,6 +328,13 @@ class CbbaAgent:
             our_agent = self.winning_agent.get(task_id, UNASSIGNED)
             our_time = self.update_time.get(task_id, 0.0)
             fresher = their_time > our_time
+            if their_agent == sender:
+                self.disowned.pop((sender, task_id), None)
+            else:
+                self.disowned[(sender, task_id)] = their_time
+                if (their_agent not in (me, UNASSIGNED) and their_time
+                        <= self.disowned.get((their_agent, task_id), -math.inf)):
+                    continue  # relayed claim its drone has since disowned
 
             if their_agent == sender:      # sender claims it
                 if our_agent == me:          # both claim it: higher bid wins

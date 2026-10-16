@@ -1401,6 +1401,65 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      0.8/1.0/1.0, at 2/3/4 drones, 80 missions each: all within ~0.5s on
      time to find/reach all. The coverage map's goal picking does the
      search work, so the swarm parameters matter little.
+   - **Live with 3 and 4 drones (Gazebo, `NUM_DRONES=N sim.sh test-fleet`,
+     2026-10-16):** both passed - all 5 people reached (3 drones: 1/2/2
+     people per drone, 4 drones: 1/1/0/3), every target settled within
+     ~6ms of its report and never changed hands in flight, closest 2.27m
+     / 3.41m.
+   - **CBBA against the optimum** (`tools/cbba_optimality.py`, 300 random
+     static problems per row, perfect messages, brute force over every
+     assignment and order; CBBA's objective = sum of time-discounted
+     value):
+
+     | area | drones / people | CBBA mean % of optimal (worst) | optimal | nearest-drone % (worst) | CBBA makespan / best, median (p90) |
+     |---|---|---|---|---|---|
+     | r=6m | 2 / 4 | 99.2 (84.9) | 215/300 | 96.9 (81.0) | 1.01 (1.35) |
+     | r=6m | 3 / 5 | 99.3 (92.9) | 172/300 | 97.1 (79.1) | 1.08 (1.47) |
+     | r=6m | 4 / 6 | 99.3 (94.8) | 147/300 | 97.5 (85.3) | 1.14 (1.50) |
+     | r=15m | 2 / 4 | 98.7 (69.7) | 223/300 | 94.7 (63.5) | 1.01 (1.35) |
+     | r=15m | 3 / 5 | 98.7 (85.5) | 179/300 | 94.9 (62.9) | 1.08 (1.47) |
+     | r=15m | 4 / 6 | 98.8 (89.8) | 161/300 | 95.5 (74.0) | 1.14 (1.50) |
+
+     Far above the paper's 50% guarantee. CBBA does not minimise the
+     makespan (time until the last person is reached): median 8-14% later
+     than the best possible, up to 2.4x - the 1/1/0/3 split above. A
+     makespan-aware bid is future work.
+   - **Consensus bug found by that tool, fixed:** with 4 drones 1 problem
+     in 300 never agreed and left a person unassigned - a claim drone 0
+     had dropped kept circulating between the others and knocked the
+     real holder off, forever. `CbbaAgent.disowned` now remembers when
+     each drone itself last said it does not hold a task, and ignores
+     relayed claims for it no newer than that (the role of the paper's
+     per-drone timestamps). After: 0/1800 problems unassigned or
+     disagreeing; missions unchanged (80/80 everywhere). A first version
+     stamped "heard from" with arrival time and dropped claims made while
+     a message was in flight (worst handovers 2 -> 14) - rejected.
+   - **PSO against baselines** (`fleet_sim.py --search`,
+     `tools/search_baselines.py`; same CBBA, collision floor and speed cap,
+     only the search differs; 60 missions, 4 people; median / p90 seconds
+     until every person was reached):
+
+     | area | drones | PSO (ours) | greedy (no swarm motion) | lawnmower | random |
+     |---|---|---|---|---|---|
+     | r=6m | 2 | 15.8 / 34.0 | 15.5 / 29.0 | 18.0 / 27.5 | 29.0 / 66.5 |
+     | r=6m | 3 | 10.2 / 16.0 | 10.5 / 16.5 | 12.0 / 16.5 | 20.5 / 51.5 |
+     | r=6m | 4 | 8.5 / 12.0 | 9.0 / 12.5 | 8.5 / 15.0 | 21.0 / 56.5 |
+     | r=12m | 2 | 56.0 / 150.5 | 59.0 / 120.5 | 65.5 / 81.5 | 126.8 / 283.0 |
+     | r=12m | 3 | 41.0 / 61.0 | 36.5 / 70.0 | 40.5 / 51.5 | 93.0 / 259.5 |
+     | r=12m | 4 | 29.2 / 54.0 | 28.5 / 52.5 | 32.0 / 45.0 | 80.2 / 217.5 |
+
+     PSO is 2-3x faster than random everywhere, and matches or beats a
+     lawnmower on the median; the lawnmower, which covers everything once
+     by a fixed time, has the better worst case in the larger area. The
+     swarm motion adds about nothing over flying straight at the coverage
+     map's goal ("greedy") - the map does the work. (The lawnmower's lanes
+     first missed the circle's edges, 4-10 missions in 60 unfinished;
+     fixed before these numbers.) Not yet measured: where an adaptive
+     search should win - drones leaving mid-search (a lawnmower strip is
+     then abandoned) and a non-uniform risk map.
+   - **Bids' assumed speed** (`cbba.NOMINAL_SPEED_MPS` 2.0 vs the measured
+     ~1 m/s): no difference in any metric (3/4 drones, 0/60% loss, 80
+     missions) - kept at 2.0.
      `test-handoff` - drone 1 handed off [3, 4] at reserve, flew home and
      landed under its own control (no crash), drone 0 took both; closest
      1.80m.

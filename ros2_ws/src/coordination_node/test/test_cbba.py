@@ -1,3 +1,5 @@
+import time
+
 from coordination_node.cbba import UNASSIGNED, CbbaAgent, Task
 
 
@@ -220,3 +222,18 @@ def test_a_held_bid_rises_as_the_drone_closes_in_and_never_falls():
     risen = held.winning_bids[1]
     assert not held.refresh_bids((0.0, 0.0))               # flew away: kept
     assert held.winning_bids[1] == risen
+
+
+def test_a_relayed_claim_older_than_its_drones_own_word_is_ignored():
+    target = _task(6, 4.0, 0.0)
+    holder = _agent(3, target)
+    holder.build_bundle((3.0, 0.0))
+    assert holder.bundle == [6]
+    old = time.time() - 5.0                 # drone 0's claim, since dropped
+    holder.receive_bundle_state(0, [6], [holder.winning_bids[6]], [3], [old + 1])
+    # Drone 1 relays drone 0's old, higher claim after drone 0 spoke.
+    holder.receive_bundle_state(1, [6], [0.99], [0], [old])
+    assert holder.bundle == [6] and holder.winning_agent[6] == 3
+    # A claim made after drone 0 last spoke still counts.
+    holder.receive_bundle_state(1, [6], [0.99], [0], [time.time() + 1])
+    assert holder.bundle == [] and holder.winning_agent[6] == 0

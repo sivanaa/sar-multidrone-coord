@@ -50,6 +50,7 @@ from coordination_node.brain import (  # noqa: E402
     STATE_RETURNING, TICK_S, DroneBrain)
 from coordination_node.coverage import (  # noqa: E402
     CoverageMap, camera_footprint)
+import search_baselines  # noqa: E402
 
 DT = 0.05  # vehicle physics step
 SETPOINT_EVERY = 2  # physics steps per 10Hz setpoint/broadcast
@@ -132,12 +133,13 @@ class Mission:
                  loss=0.0, latency=0.02, jitter=0.01, range_m=0.0,
                  detect_radius=1.5, max_time=300.0, verbose=False,
                  sensor_radius=1.5, revisit_after_s=60.0, camera_alt=None,
-                 brain_footprint=False):
+                 brain_footprint=False, search='pso'):
         """`camera_alt`: the drones' sensor is the nadir camera's ground
         rectangle at this altitude (coverage.camera_footprint) - for
         detection and the coverage metric; None = a detect_radius circle.
         `brain_footprint`: the brains' coverage maps use that rectangle
-        too (else their sensor_radius circle)."""
+        too (else their sensor_radius circle). `search`: how drones search
+        (search_baselines.SEARCHES; 'pso' = what they fly)."""
         self.rng = random.Random(seed)
         random.seed(seed)  # pso.py draws from the module-level generator
         self.verbose = verbose
@@ -160,6 +162,9 @@ class Mission:
                        revisit_after_s=revisit_after_s, real_vehicle=True,
                        footprint=self.footprint if brain_footprint else None)
             for i, s in enumerate(spawns)]
+        half_widths = self.footprint or (detect_radius / math.sqrt(2),) * 2
+        search_baselines.install(search, self.brains, spawns, area_center,
+                                 area_radius, half_widths, seed)
         self.targets = self._place_targets(targets, area_center, area_radius,
                                            spawns)
         self.found_at = [None] * len(self.targets)
@@ -405,6 +410,9 @@ def main():
                         'sim.sh flies at 3; 0 = use --detect-radius circle')
     p.add_argument('--brain-footprint', action='store_true',
                    help='brains count coverage with that camera rectangle too')
+    p.add_argument('--search', choices=search_baselines.SEARCHES, default='pso',
+                   help='search to fly: pso (the real one) or a baseline '
+                        '(see search_baselines.py)')
     p.add_argument('--max-time', type=float, default=300.0)
     p.add_argument('--verbose', action='store_true',
                    help='print every brain log line (use with --trials 1)')
@@ -425,11 +433,11 @@ def main():
                     detect_radius=a.detect_radius, max_time=a.max_time,
                     camera_alt=a.camera_alt or None,
                     brain_footprint=a.brain_footprint,
-                    verbose=a.verbose)
+                    search=a.search, verbose=a.verbose)
         results.append(m.run())
     print(f'{a.drones} drones, {a.targets} targets, area r={a.area[2]}m, '
           f'loss {a.loss:.0%}, latency {a.latency * 1000:.0f}ms, '
-          f'range {a.range or "unlimited"}, {a.trials} missions')
+          f'range {a.range or "unlimited"}, {a.search} search, {a.trials} missions')
     print(summarize(results))
     if a.json:
         with open(a.json, 'w') as f:
