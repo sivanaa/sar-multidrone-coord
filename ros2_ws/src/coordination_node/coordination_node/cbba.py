@@ -53,6 +53,8 @@ DUPLICATE_RADIUS_M = 0.0
 # test-bids 2026-10-16: target 1 changed hands 4 times in 3s), each swap
 # able to turn a drone around. 0 = plain CBBA (any higher bid wins).
 OUTBID_MARGIN = 0.0
+# Most tasks one drone commits to at once.
+MAX_BUNDLE_SIZE = 3
 
 
 def battery_value_scale(remaining):
@@ -74,10 +76,11 @@ class CbbaAgent:
     """One drone's CBBA state: its bundle/path, and its belief about every
     task it currently knows about (winning bids/agents/timestamps)."""
 
-    def __init__(self, drone_id, max_bundle_size=3, task_types=None,
+    def __init__(self, drone_id, max_bundle_size=None, task_types=None,
                  duplicate_radius=None, outbid_margin=None):
         self.drone_id = drone_id
-        self.max_bundle_size = max_bundle_size
+        self.max_bundle_size = (MAX_BUNDLE_SIZE if max_bundle_size is None
+                                else max_bundle_size)
         # Target types this drone can handle (e.g. only a drone carrying a
         # float can take a 'drop' task); None = any. A drone never bids on
         # a task it can't do, so CBBA's usual rules hand it to one that

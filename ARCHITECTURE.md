@@ -1457,6 +1457,24 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      fixed before these numbers.) Not yet measured: where an adaptive
      search should win - drones leaving mid-search (a lawnmower strip is
      then abandoned) and a non-uniform risk map.
+   - **Bundle size and discount against the pile-up** (one drone chaining
+     3 people while another has none, seen live): swept
+     `cbba.MAX_BUNDLE_SIZE` 3 / 2 x `cbba.DISCOUNT` 0.9 / 0.8 / 0.7 - 300
+     static problems per cell (optimum always over <= 3 per drone), and 80
+     missions of 5 people at 3/4 drones, 0/60% loss. Neither helps, both
+     kept (3, 0.9):
+     - the discount changes no assignment at all (makespan and total
+       wait ratios identical to 2 decimals across 0.9-0.7);
+     - bundles of 2 make it worse - makespan median 1.08-1.14 -> 1.25x
+       the best, total wait 1.00-1.01 -> 1.05-1.07x - capping the nearby
+       drone sends a far one instead;
+     - in missions nothing changes (time to reach all within 0.5s), as
+       people are found one at a time and bundles rarely fill.
+     And CBBA's chaining is right for the average person: its total
+     waiting time (sum of every person's arrival time) is median 1.00 -
+     1.01x the best possible (p90 1.15). It trades the last person's
+     arrival for everyone else's. Minimising the makespan instead means a
+     different objective (min-max bids) - future work.
    - **Bids' assumed speed** (`cbba.NOMINAL_SPEED_MPS` 2.0 vs the measured
      ~1 m/s): no difference in any metric (3/4 drones, 0/60% loss, 80
      missions) - kept at 2.0.

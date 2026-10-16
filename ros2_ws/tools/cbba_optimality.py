@@ -30,8 +30,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 '..', 'src', 'coordination_node'))
 from coordination_node import cbba  # noqa: E402
 from coordination_node.cbba import CbbaAgent, Task  # noqa: E402
+from fleet_sim import apply_override  # noqa: E402
 
 CONSENSUS_ROUNDS = 30
+# The optimum is always over assignments of at most 3 people per drone
+# (cbba.MAX_BUNDLE_SIZE's default), so rows run with a
+# different --set cbba.MAX_BUNDLE_SIZE are scored against the same optimum.
+OPTIMUM_BUNDLE_SIZE = 3
 
 
 def random_point(rng, center, radius):
@@ -84,13 +89,23 @@ def finish_time(tasks, path, start):
     return t
 
 
+def total_wait(tasks, path, start):
+    """Sum of every person's arrival time along `path`."""
+    t, total, here = 0.0, 0.0, start
+    for task_id in path:
+        t += math.dist(here, tasks[task_id].position) / cbba.NOMINAL_SPEED_MPS
+        total += t
+        here = tasks[task_id].position
+    return total
+
+
 def brute_force(starts, tasks, bundle_size):
-    """Best total value and best makespan over every assignment (each
-    drone at most `bundle_size` people, as in CBBA) and order."""
+    """Best total value, best makespan and best total wait over every
+    assignment (each drone at most `bundle_size` people) and order."""
     scorer = CbbaAgent(0)
     scorer.tasks = tasks
     ids = list(tasks)
-    best_value, best_makespan = -math.inf, math.inf
+    best_value, best_makespan, best_wait = -math.inf, math.inf, math.inf
     for owners in itertools.product(range(len(starts)), repeat=len(ids)):
         groups = [[t for t, o in zip(ids, owners) if o == d]
                   for d in range(len(starts))]
@@ -98,12 +113,15 @@ def brute_force(starts, tasks, bundle_size):
             continue
         value = sum(best_order(scorer.path_value, s, g)[1]
                     for s, g in zip(starts, groups))
-        makespan = max(min(finish_time(tasks, p, s)
-                           for p in itertools.permutations(g)) if g else 0.0
-                       for s, g in zip(starts, groups))
+        orders = [list(itertools.permutations(g)) for g in groups]
+        makespan = max(min(finish_time(tasks, p, s) for p in o)
+                       for s, o in zip(starts, orders))
+        wait = sum(min(total_wait(tasks, p, s) for p in o)
+                   for s, o in zip(starts, orders))
         best_value = max(best_value, value)
         best_makespan = min(best_makespan, makespan)
-    return best_value, best_makespan
+        best_wait = min(best_wait, wait)
+    return best_value, best_makespan, best_wait
 
 
 def nearest_drone(starts, tasks):
@@ -131,13 +149,18 @@ def main():
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('--area', type=float, nargs=3, default=[4.0, 4.0, 6.0],
                    metavar=('CX', 'CY', 'R'))
+    p.add_argument('--set', action='append', default=[], metavar='cbba.NAME=VALUE',
+                   help='override a CBBA constant, e.g. cbba.MAX_BUNDLE_SIZE=2')
     a = p.parse_args()
+    for item in a.set:
+        apply_override(item)
     center, radius = tuple(a.area[:2]), a.area[2]
     bundle_size = CbbaAgent(0).max_bundle_size
     if a.tasks > a.drones * bundle_size:
         raise SystemExit('more people than the drones can hold in bundles')
 
-    ratio, near_ratio, span_ratio, unassigned, disagreed = [], [], [], 0, 0
+    ratio, near_ratio, span_ratio, wait_ratio = [], [], [], []
+    unassigned, disagreed = 0, 0
     for k in range(a.trials):
         rng = random.Random(a.seed + k)
         starts = [random_point(rng, center, radius) for _ in range(a.drones)]
@@ -150,13 +173,16 @@ def main():
         assigned = [t for path in paths for t in path]
         unassigned += len(set(tasks) - set(assigned))
         value = sum(scorer.path_value(pth, s) for pth, s in zip(paths, starts))
-        best_value, best_makespan = brute_force(starts, tasks, bundle_size)
+        best_value, best_makespan, best_wait = brute_force(
+            starts, tasks, OPTIMUM_BUNDLE_SIZE)
         ratio.append(value / best_value)
         near = nearest_drone(starts, tasks)
         near_ratio.append(sum(scorer.path_value(pth, s)
                               for pth, s in zip(near, starts)) / best_value)
         makespan = max(finish_time(tasks, pth, s) for pth, s in zip(paths, starts))
         span_ratio.append(makespan / best_makespan if best_makespan > 0 else 1.0)
+        wait = sum(total_wait(tasks, pth, s) for pth, s in zip(paths, starts))
+        wait_ratio.append(wait / best_wait if best_wait > 0 else 1.0)
 
     def pct(xs, q):
         xs = sorted(xs)
@@ -171,6 +197,8 @@ def main():
           f'worst {100 * min(near_ratio):5.1f}')
     print(f'CBBA makespan / best makespan: median {statistics.median(span_ratio):.2f}  '
           f'p90 {pct(span_ratio, 0.9):.2f}  worst {max(span_ratio):.2f}')
+    print(f'CBBA total wait / best:       median {statistics.median(wait_ratio):.2f}  '
+          f'p90 {pct(wait_ratio, 0.9):.2f}  worst {max(wait_ratio):.2f}')
     print(f'people left unassigned: {unassigned}   problems where drones '
           f'disagreed after consensus: {disagreed}')
 
