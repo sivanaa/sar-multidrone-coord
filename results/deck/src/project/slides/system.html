@@ -1,0 +1,22 @@
+<section id="system" data-transition="fade" style="background:#F5F6F3;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<div style="display:flex;flex-direction:column;gap:16px">
+<p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">How it works</p>
+<h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">The same node runs on every drone</h2>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:32px">
+<div style="display:flex;flex-direction:column;gap:16px;background:#FCFCFB;border:1px solid #DCE0E4;border-top:6px solid #2A78D6;border-radius:16px;padding:40px">
+<h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">Search: PSO</h3>
+<p style="font-size:30px;line-height:1.4;color:#4A5563">A coverage map of what has been seen, weighted by flood risk. Particle Swarm Optimisation moves each drone toward unsearched ground.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:16px;background:#FCFCFB;border:1px solid #DCE0E4;border-top:6px solid #2A78D6;border-radius:16px;padding:40px">
+<h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">Assign: CBBA</h3>
+<p style="font-size:30px;line-height:1.4;color:#4A5563">Each person found becomes a task. Drones bid and reach agreement by messages alone (Choi et al., 2009).</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:16px;background:#FCFCFB;border:1px solid #DCE0E4;border-top:6px solid #2A78D6;border-radius:16px;padding:40px">
+<h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">Safety floor</h3>
+<p style="font-size:30px;line-height:1.4;color:#4A5563">Every setpoint keeps 1.8 m from where each neighbour is heading, with a braking limit.</p>
+</div>
+</div>
+<p style="font-size:30px;line-height:1.4;color:#4A5563">ROS 2 Humble · PX4 SITL v1.18 · Gazebo Harmonic · AirSim 1.8.1. All decision logic sits in one ROS-free class, so the exact flight code also runs in a fast simulator.</p>
+<aside>Search uses a coverage map: which ground each drone has seen recently, optionally weighted by a flood-risk map. PSO moves the drones toward high-value unsearched ground. When anyone detects a person, it becomes a task, and CBBA, the Consensus-Based Bundle Algorithm, lets the drones bid and agree on who goes where using only messages. Under both sits a hard safety floor: every position command keeps 1.8 m from where each neighbour is predicted to be, and limits approach speed. A drone at low battery hands its tasks to the others and flies home.</aside>
+</section>

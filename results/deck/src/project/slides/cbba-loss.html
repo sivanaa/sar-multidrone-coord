@@ -1,0 +1,18 @@
+<section id="cbba-loss" data-transition="fade" style="background:#F5F6F3;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<div style="display:flex;flex-direction:column;gap:16px">
+<p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">CBBA · lost messages</p>
+<h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">Four fixes keep missions finishing when messages are lost</h2>
+</div>
+<div style="display:flex;gap:48px;align-items:center">
+<div style="background:#FCFCFB;border:1px solid #DCE0E4;border-radius:16px;padding:16px">
+<img src="/_blob/76c426b7bdfa2c08fb79b1dda2a9d6e4" alt="Chart: missions finished out of 80 against message loss. With the fixes, 80 at every loss level except 79 once; plain CBBA falls to 52 with 3 drones and 45 with 4 drones at 60 percent loss." style="width:1040px;height:477px;object-fit:contain">
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:20px">
+<p style="font-size:30px;line-height:1.4;color:#15202B"><b>Re-broadcast</b> every second, so a lost message is repeated.</p>
+<p style="font-size:30px;line-height:1.4;color:#15202B"><b>Merge</b> two reports of one person (within 1 m).</p>
+<p style="font-size:30px;line-height:1.4;color:#15202B"><b>Refresh bids</b> as a drone closes in, with a 20% margin.</p>
+<p style="font-size:30px;line-height:1.4;color:#15202B"><b>Ignore stale claims</b> relayed after their drone dropped them.</p>
+</div>
+</div>
+<aside>Plain CBBA, as published, broke in my live and simulated runs. A lost message was never repeated, two drones seeing the same person created two tasks, a drone’s bid froze when it won so a passing drone could steal the task mid-flight, and old claims kept being relayed. Each fix was measured on and off. Together, the missions where every person was reached stay at 80 out of 80 at every loss level, one mission short at 20 percent. Plain CBBA drops to 52 and 45 out of 80 at 60 percent loss.</aside>
+</section>

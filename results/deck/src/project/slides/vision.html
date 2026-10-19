@@ -1,0 +1,19 @@
+<section id="vision" data-transition="fade" style="background:#F5F6F3;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<div style="display:flex;flex-direction:column;gap:16px">
+<p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">The lab’s vision models</p>
+<h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">Tried on recorded AirSim camera frames</h2>
+</div>
+<div style="display:flex;gap:40px">
+<div style="flex:1;display:flex;flex-direction:column;gap:20px">
+<img src="/_blob/22d1d0ba27003f555e09ee806328ba77" alt="AirSim camera frame from 3 m: two lying mannequins; the detector boxes a hand and a foot." style="width:680px;height:383px;object-fit:cover;border-radius:12px">
+<h3 style="font-family:'Archivo', Arial, sans-serif;font-size:36px;font-weight:600;color:#15202B">Person detector: partly works</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A5563">Found 24% of people in view, no false detections in 388 frames. It boxes hands and feet, like people seen from 10–50 m.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:20px">
+<img src="/_blob/44da375fc9cb89023d10733fbfec7cd5" alt="AirSim frame over the river beside the water mask, which covers the whole frame including dry floor." style="width:812px;height:228px;object-fit:contain;border-radius:12px;background:#15202B">
+<h3 style="font-family:'Archivo', Arial, sans-serif;font-size:36px;font-weight:600;color:#15202B">Flood models: don’t transfer</h3>
+<p style="font-size:28px;line-height:1.4;color:#4A5563">The water mask marks the whole frame as water. On real flood photos it follows the water, so the gap is the scene, not the code.</p>
+</div>
+</div>
+<aside>The lab’s Model Server weights became available, so I ran its person detector and flood models on camera frames recorded during AirSim flights and scored them against where the people and water really were. The person detector, a YOLO model trained on VisDrone aerial images, found about a quarter of the people in view with no false detections. It picks out hands and feet, which look like people seen from much higher up. The flood models fail on AirSim’s synthetic floor and water: the mask labels everything as water. On real flood photos the same pipeline does follow the water. So these models need a photoreal scene or real footage; the coordination layer will accept any detector that reports a position.</aside>
+</section>

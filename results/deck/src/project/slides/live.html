@@ -1,0 +1,17 @@
+<section id="live" data-transition="fade" style="background:#F5F6F3;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:40px">
+<div style="display:flex;flex-direction:column;gap:16px">
+<p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">Live flights</p>
+<h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">Flown with PX4 at every step</h2>
+</div>
+<table style="font-size:28px;color:#15202B;background:#FCFCFB;border:1px solid #DCE0E4">
+<tr><th style="width:30%">Test</th><th style="width:16%">Simulator</th><th style="width:12%">Drones</th><th style="width:20%">Result</th><th style="width:22%">Closest drones</th></tr>
+<tr><td>Crossing (×5)</td><td>Gazebo</td><td>2</td><td>pass</td><td>1.72 m or more</td></tr>
+<tr><td>Bids, battery hand-off</td><td>Gazebo</td><td>2</td><td>pass</td><td>1.80–2.89 m</td></tr>
+<tr><td>Fleet, 5 people (×4)</td><td>Gazebo</td><td>3</td><td>pass</td><td>1.75–2.87 m</td></tr>
+<tr><td>Fleet, 5 people</td><td>Gazebo</td><td>4</td><td>pass</td><td>3.41 m</td></tr>
+<tr><td>Fleet, 5 people (×2)</td><td>AirSim</td><td>3</td><td>pass after fix</td><td>1.38 m, then 1.55 m</td></tr>
+<tr><td>Camera finds people</td><td>AirSim</td><td>2</td><td>pass</td><td>—</td></tr>
+</table>
+<p style="font-size:30px;line-height:1.4;color:#4A5563">The first AirSim run came within 1.38 m: its drones brake at about 1 m/s², half what the limit assumed. With the limit lowered, 11 minutes of flight stayed at 1.55 m or more.</p>
+<aside>Every change to code the drones run was flown before I kept it. In Gazebo, 2, 3 and 4 drones all passed, never closer than 1.72 metres. The first 3-drone run in AirSim reached every person but came within 1.38 metres, under the 1.5 metre floor. The logs showed the commands kept the margin, but AirSim’s drones brake at about 1 metre per second squared, half of what the braking limit assumed, so they overshot. After lowering the limit, 11 minutes of continuous flight stayed at 1.55 metres or more. That is above the floor but with little margin, and I list it as a limitation.</aside>
+</section>
