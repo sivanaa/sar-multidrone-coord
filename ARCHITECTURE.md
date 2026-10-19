@@ -1528,6 +1528,38 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      AirSim-like vehicles, 1.60-1.73 -> 1.75-1.76m with Gazebo-like ones,
      search times unchanged. (A 1.12m reading later in that run came
      after `sim.sh down` had stopped the nodes - nothing was steering.)
+     **Recheck, same day, braking 1.0:** 11 minutes of 3-drone AirSim
+     search with the nodes running, closest 1.55m - above the floor but
+     with little margin. The report figures (`results/figures`) were
+     regenerated with braking 1.0; the tables above in this section were
+     measured with 2.0, so their numbers differ slightly from the figures
+     (e.g. 3 drones, plain map: PSO 42.0s vs lawnmower 40.5s, not 41.0 vs
+     39.8; plain CBBA at 60% loss 45-52/80, not 53-56).
+   - **The lab's vision models on AirSim frames (2026-10-19, offline).**
+     The Model Server's weights are public in github.com/aykumar21/Drone_LLM
+     (no license file - lab use, credit the author). Its ONNX exports run
+     with onnxruntime in `~/venvs/vision` (made without sudo: venv
+     --without-pip + get-pip.py; the system NumPy 2 stays as AirSim needs
+     it). `tools/airsim/model_eval.py` scores them on recorded runs with
+     the frames' true poses; examples in `results/models/`.
+     - *Person detector* (YOLO11s fine-tuned on VisDrone, 1280px, classes
+       0-1), test-vision run 2026-10-15_161644, 388 frames at 3m: of 122
+       person-in-view instances, 29 found within 1m (24%), median error
+       0.36m, **0 false detections**. It fires on the mannequins' hands
+       and feet - small dark shapes, as VisDrone people look from 10-50m -
+       not on the white robot bodies; a domain gap (our "people" are Unreal
+       mannequins on a flat floor), not a broken pipeline.
+     - *Flood models* on demo-flood 2026-10-15_155954 (river laid as
+       AirSim water): the DeepLabv3 water mask calls every pixel of every
+       frame water (fraction 1.00 on river and dry frames alike); the
+       ResNet18 classifier is right on 43% of frames and calls even the
+       repo's own flood photos dry (its class order may differ in the
+       ONNX export). On the repo's real flood photos the mask does follow
+       the floodwater (plain 0-1 input, as its scripts do; ImageNet
+       normalisation made it find almost nothing), so the pipeline is
+       sound and Blocks' synthetic floor and water are simply outside
+       what it was trained on. A flood-risk map from these models needs a
+       photoreal scene or real footage - future work.
    - **Bundle size and discount against the pile-up** (one drone chaining
      3 people while another has none, seen live): swept
      `cbba.MAX_BUNDLE_SIZE` 3 / 2 x `cbba.DISCOUNT` 0.9 / 0.8 / 0.7 - 300
