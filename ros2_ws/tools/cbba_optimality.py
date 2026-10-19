@@ -20,6 +20,7 @@ closest drone, flown nearest-first) for context.
 
 import argparse
 import itertools
+import json
 import math
 import os
 import random
@@ -151,6 +152,7 @@ def main():
                    metavar=('CX', 'CY', 'R'))
     p.add_argument('--set', action='append', default=[], metavar='cbba.NAME=VALUE',
                    help='override a CBBA constant, e.g. cbba.MAX_BUNDLE_SIZE=2')
+    p.add_argument('--json', help='write every problem\'s ratios here')
     a = p.parse_args()
     for item in a.set:
         apply_override(item)
@@ -201,6 +203,12 @@ def main():
           f'p90 {pct(wait_ratio, 0.9):.2f}  worst {max(wait_ratio):.2f}')
     print(f'people left unassigned: {unassigned}   problems where drones '
           f'disagreed after consensus: {disagreed}')
+    if a.json:
+        with open(a.json, 'w') as f:
+            json.dump({'args': vars(a), 'value_ratio': ratio,
+                       'nearest_value_ratio': near_ratio,
+                       'makespan_ratio': span_ratio, 'wait_ratio': wait_ratio,
+                       'unassigned': unassigned, 'disagreed': disagreed}, f)
 
 
 if __name__ == '__main__':

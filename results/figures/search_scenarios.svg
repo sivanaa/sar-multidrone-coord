@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="t d">
+<title id="t">Search scenarios</title><desc id="d">Median time to reach everyone, PSO vs lawnmower, in four scenarios.</desc>
+<rect width="960" height="360" fill="#fcfcfb"/>
+<text x="24.0" y="30.0" font-size="15" fill="#0b0b0b" text-anchor="start" font-weight="600">When a drone leaves or people cluster by a river, PSO finds everyone sooner</text>
+<text x="24.0" y="50.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">Median seconds until every person was reached (12m-radius area, 4 people, 60 missions; lower is better)</text>
+<rect x="24" y="68" width="10" height="10" rx="2" fill="#2a78d6"/>
+<text x="39.0" y="78.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">PSO + coverage map (ours)</text>
+<rect x="239.0" y="68" width="10" height="10" rx="2" fill="#eb6834"/>
+<text x="254.0" y="78.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">Lawnmower (re-plans when a drone leaves)</text>
+<text x="70.0" y="112.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">2 drones</text>
+<text x="62.0" y="298.0" font-size="11" fill="#898781" text-anchor="end" font-weight="400">0</text>
+<line x1="70.0" y1="237.3" x2="320.0" y2="237.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="241.3" font-size="11" fill="#898781" text-anchor="end" font-weight="400">50</text>
+<line x1="70.0" y1="180.7" x2="320.0" y2="180.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="184.7" font-size="11" fill="#898781" text-anchor="end" font-weight="400">100</text>
+<line x1="70.0" y1="124.0" x2="320.0" y2="124.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="62.0" y="128.0" font-size="11" fill="#898781" text-anchor="end" font-weight="400">150</text>
+<line x1="70.0" y1="294.0" x2="320.0" y2="294.0" stroke="#c3c2b7" stroke-width="1"/>
+<text transform="translate(30.0,209.0) rotate(-90)" font-size="11" fill="#52514e" text-anchor="middle">seconds</text>
+<path d="M80.2,294.0 V234.5 Q80.2,230.5 84.2,230.5 H96.2 Q100.2,230.5 100.2,234.5 V294.0 Z" fill="#2a78d6"/>
+<path d="M102.2,294.0 V223.8 Q102.2,219.8 106.2,219.8 H118.2 Q122.2,219.8 122.2,223.8 V294.0 Z" fill="#eb6834"/>
+<text x="101.2" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">normal</text>
+<path d="M142.8,294.0 V193.2 Q142.8,189.2 146.8,189.2 H158.8 Q162.8,189.2 162.8,193.2 V294.0 Z" fill="#2a78d6"/>
+<path d="M164.8,294.0 V159.5 Q164.8,155.5 168.8,155.5 H180.8 Q184.8,155.5 184.8,159.5 V294.0 Z" fill="#eb6834"/>
+<text x="163.8" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">drone leaves</text>
+<path d="M205.2,294.0 V230.0 Q205.2,226.0 209.2,226.0 H221.2 Q225.2,226.0 225.2,230.0 V294.0 Z" fill="#2a78d6"/>
+<path d="M227.2,294.0 V220.9 Q227.2,216.9 231.2,216.9 H243.2 Q247.2,216.9 247.2,220.9 V294.0 Z" fill="#eb6834"/>
+<text x="226.2" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">river</text>
+<path d="M267.8,294.0 V210.2 Q267.8,206.2 271.8,206.2 H283.8 Q287.8,206.2 287.8,210.2 V294.0 Z" fill="#2a78d6"/>
+<path d="M289.8,294.0 V166.0 Q289.8,162.0 293.8,162.0 H305.8 Q309.8,162.0 309.8,166.0 V294.0 Z" fill="#eb6834"/>
+<text x="288.8" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">both</text>
+<text x="370.0" y="112.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">3 drones</text>
+<text x="362.0" y="298.0" font-size="11" fill="#898781" text-anchor="end" font-weight="400">0</text>
+<line x1="370.0" y1="251.5" x2="620.0" y2="251.5" stroke="#e1e0d9" stroke-width="1"/>
+<text x="362.0" y="255.5" font-size="11" fill="#898781" text-anchor="end" font-weight="400">20</text>
+<line x1="370.0" y1="209.0" x2="620.0" y2="209.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="362.0" y="213.0" font-size="11" fill="#898781" text-anchor="end" font-weight="400">40</text>
+<line x1="370.0" y1="166.5" x2="620.0" y2="166.5" stroke="#e1e0d9" stroke-width="1"/>
+<text x="362.0" y="170.5" font-size="11" fill="#898781" text-anchor="end" font-weight="400">60</text>
+<line x1="370.0" y1="124.0" x2="620.0" y2="124.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="362.0" y="128.0" font-size="11" fill="#898781" text-anchor="end" font-weight="400">80</text>
+<line x1="370.0" y1="294.0" x2="620.0" y2="294.0" stroke="#c3c2b7" stroke-width="1"/>
+<path d="M380.2,294.0 V210.9 Q380.2,206.9 384.2,206.9 H396.2 Q400.2,206.9 400.2,210.9 V294.0 Z" fill="#2a78d6"/>
+<path d="M402.2,294.0 V213.5 Q402.2,209.5 406.2,209.5 H418.2 Q422.2,209.5 422.2,213.5 V294.0 Z" fill="#eb6834"/>
+<text x="401.2" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">normal</text>
+<path d="M442.8,294.0 V181.7 Q442.8,177.7 446.8,177.7 H458.8 Q462.8,177.7 462.8,181.7 V294.0 Z" fill="#2a78d6"/>
+<path d="M464.8,294.0 V161.5 Q464.8,157.5 468.8,157.5 H480.8 Q484.8,157.5 484.8,161.5 V294.0 Z" fill="#eb6834"/>
+<text x="463.8" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">drone leaves</text>
+<path d="M505.2,294.0 V227.9 Q505.2,223.9 509.2,223.9 H521.2 Q525.2,223.9 525.2,227.9 V294.0 Z" fill="#2a78d6"/>
+<path d="M527.2,294.0 V219.4 Q527.2,215.4 531.2,215.4 H543.2 Q547.2,215.4 547.2,219.4 V294.0 Z" fill="#eb6834"/>
+<text x="526.2" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">river</text>
+<path d="M567.8,294.0 V220.4 Q567.8,216.4 571.8,216.4 H583.8 Q587.8,216.4 587.8,220.4 V294.0 Z" fill="#2a78d6"/>
+<path d="M589.8,294.0 V177.9 Q589.8,173.9 593.8,173.9 H605.8 Q609.8,173.9 609.8,177.9 V294.0 Z" fill="#eb6834"/>
+<text x="588.8" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">both</text>
+<text x="670.0" y="112.0" font-size="13" fill="#0b0b0b" text-anchor="start" font-weight="600">4 drones</text>
+<text x="662.0" y="298.0" font-size="11" fill="#898781" text-anchor="end" font-weight="400">0</text>
+<line x1="670.0" y1="237.3" x2="920.0" y2="237.3" stroke="#e1e0d9" stroke-width="1"/>
+<text x="662.0" y="241.3" font-size="11" fill="#898781" text-anchor="end" font-weight="400">20</text>
+<line x1="670.0" y1="180.7" x2="920.0" y2="180.7" stroke="#e1e0d9" stroke-width="1"/>
+<text x="662.0" y="184.7" font-size="11" fill="#898781" text-anchor="end" font-weight="400">40</text>
+<line x1="670.0" y1="124.0" x2="920.0" y2="124.0" stroke="#e1e0d9" stroke-width="1"/>
+<text x="662.0" y="128.0" font-size="11" fill="#898781" text-anchor="end" font-weight="400">60</text>
+<line x1="670.0" y1="294.0" x2="920.0" y2="294.0" stroke="#c3c2b7" stroke-width="1"/>
+<path d="M680.2,294.0 V215.1 Q680.2,211.1 684.2,211.1 H696.2 Q700.2,211.1 700.2,215.1 V294.0 Z" fill="#2a78d6"/>
+<path d="M702.2,294.0 V205.9 Q702.2,201.9 706.2,201.9 H718.2 Q722.2,201.9 722.2,205.9 V294.0 Z" fill="#eb6834"/>
+<text x="701.2" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">normal</text>
+<path d="M742.8,294.0 V205.9 Q742.8,201.9 746.8,201.9 H758.8 Q762.8,201.9 762.8,205.9 V294.0 Z" fill="#2a78d6"/>
+<path d="M764.8,294.0 V170.5 Q764.8,166.5 768.8,166.5 H780.8 Q784.8,166.5 784.8,170.5 V294.0 Z" fill="#eb6834"/>
+<text x="763.8" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">drone leaves</text>
+<path d="M805.2,294.0 V230.7 Q805.2,226.7 809.2,226.7 H821.2 Q825.2,226.7 825.2,230.7 V294.0 Z" fill="#2a78d6"/>
+<path d="M827.2,294.0 V208.8 Q827.2,204.8 831.2,204.8 H843.2 Q847.2,204.8 847.2,208.8 V294.0 Z" fill="#eb6834"/>
+<text x="826.2" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">river</text>
+<path d="M867.8,294.0 V231.4 Q867.8,227.4 871.8,227.4 H883.8 Q887.8,227.4 887.8,231.4 V294.0 Z" fill="#2a78d6"/>
+<path d="M889.8,294.0 V177.6 Q889.8,173.6 893.8,173.6 H905.8 Q909.8,173.6 909.8,177.6 V294.0 Z" fill="#eb6834"/>
+<text x="888.8" y="310.0" font-size="11" fill="#52514e" text-anchor="middle" font-weight="400">both</text>
+</svg>

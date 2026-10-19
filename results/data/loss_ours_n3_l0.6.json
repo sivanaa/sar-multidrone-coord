@@ -1,0 +1,1470 @@
+{
+ "args": {
+  "drones": 3,
+  "targets": 4,
+  "trials": 80,
+  "seed": 0,
+  "area": [
+   4.0,
+   4.0,
+   6.0
+  ],
+  "loss": 0.6,
+  "latency": 0.02,
+  "jitter": 0.01,
+  "range": 0.0,
+  "detect_radius": 1.5,
+  "camera_alt": 3.0,
+  "brain_footprint": false,
+  "search": "pso",
+  "dropout": null,
+  "river": null,
+  "revisit": 240.0,
+  "max_time": 200.0,
+  "verbose": false,
+  "json": "../../results/data/loss_ours_n3_l0.6.json",
+  "set": []
+ },
+ "results": [
+  {
+   "all_found_s": 14.5,
+   "all_reached_s": 16.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 43.39162331357623,
+   "min_sep_m": 2.990676872188529,
+   "coverage_90_s": 15.0,
+   "messages": {
+    "agent": 600,
+    "target": 28,
+    "bundle": 93
+   },
+   "duplicates": 2,
+   "wasted_trips": 2,
+   "handovers": 3,
+   "end_s": 16.5
+  },
+  {
+   "all_found_s": 5.5,
+   "all_reached_s": 7.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 17.380605709491864,
+   "min_sep_m": 2.9264649985243874,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 258,
+    "target": 26,
+    "bundle": 58
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 5,
+   "end_s": 7.0
+  },
+  {
+   "all_found_s": 11.5,
+   "all_reached_s": 14.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 33.96207563047023,
+   "min_sep_m": 2.6580722255116744,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 510,
+    "target": 31,
+    "bundle": 81
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 10,
+   "end_s": 14.0
+  },
+  {
+   "all_found_s": 7.0,
+   "all_reached_s": 8.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 21.190942901836614,
+   "min_sep_m": 2.2737435264237402,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 294,
+    "target": 28,
+    "bundle": 61
+   },
+   "duplicates": 2,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 8.0
+  },
+  {
+   "all_found_s": 5.0,
+   "all_reached_s": 7.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 17.02050004733487,
+   "min_sep_m": 3.545440946260827,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 258,
+    "target": 38,
+    "bundle": 70
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 7.0
+  },
+  {
+   "all_found_s": 9.5,
+   "all_reached_s": 11.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 29.390641750941068,
+   "min_sep_m": 2.4236099542509852,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 420,
+    "target": 23,
+    "bundle": 75
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 5,
+   "end_s": 11.5
+  },
+  {
+   "all_found_s": 3.5,
+   "all_reached_s": 8.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 21.01464884658053,
+   "min_sep_m": 3.6695865867626756,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 294,
+    "target": 35,
+    "bundle": 66
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 3,
+   "end_s": 8.0
+  },
+  {
+   "all_found_s": 3.5,
+   "all_reached_s": 7.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 17.318432411359083,
+   "min_sep_m": 3.393268490667392,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 276,
+    "target": 29,
+    "bundle": 54
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 3,
+   "end_s": 7.5
+  },
+  {
+   "all_found_s": 11.5,
+   "all_reached_s": 14.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 30.934510621855576,
+   "min_sep_m": 1.8019857727856785,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 510,
+    "target": 33,
+    "bundle": 88
+   },
+   "duplicates": 2,
+   "wasted_trips": 2,
+   "handovers": 4,
+   "end_s": 14.0
+  },
+  {
+   "all_found_s": 8.5,
+   "all_reached_s": 9.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 23.093208057242038,
+   "min_sep_m": 3.0015371484742284,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 330,
+    "target": 19,
+    "bundle": 62
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 9.0
+  },
+  {
+   "all_found_s": 11.5,
+   "all_reached_s": 12.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 32.13103047115176,
+   "min_sep_m": 3.9362964779273124,
+   "coverage_90_s": 12.0,
+   "messages": {
+    "agent": 456,
+    "target": 15,
+    "bundle": 70
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 2,
+   "end_s": 12.5
+  },
+  {
+   "all_found_s": 11.5,
+   "all_reached_s": 13.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 33.06495674592631,
+   "min_sep_m": 2.9089079247620697,
+   "coverage_90_s": 10.5,
+   "messages": {
+    "agent": 474,
+    "target": 28,
+    "bundle": 79
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 3,
+   "end_s": 13.0
+  },
+  {
+   "all_found_s": 10.0,
+   "all_reached_s": 10.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 25.960647320252495,
+   "min_sep_m": 2.7365121788581264,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 384,
+    "target": 29,
+    "bundle": 68
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 7,
+   "end_s": 10.5
+  },
+  {
+   "all_found_s": 8.0,
+   "all_reached_s": 10.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 26.049152632001324,
+   "min_sep_m": 1.953339600644109,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 384,
+    "target": 25,
+    "bundle": 73
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 7,
+   "end_s": 10.5
+  },
+  {
+   "all_found_s": 9.5,
+   "all_reached_s": 11.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 28.888156520323392,
+   "min_sep_m": 1.8490844909641437,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 420,
+    "target": 25,
+    "bundle": 68
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 14,
+   "end_s": 11.5
+  },
+  {
+   "all_found_s": 22.5,
+   "all_reached_s": 24.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 57.42367229565038,
+   "min_sep_m": 2.6053392120859296,
+   "coverage_90_s": 15.5,
+   "messages": {
+    "agent": 870,
+    "target": 28,
+    "bundle": 110
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 11,
+   "end_s": 24.0
+  },
+  {
+   "all_found_s": 6.5,
+   "all_reached_s": 7.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 19.605303298924238,
+   "min_sep_m": 2.9005999846569916,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 276,
+    "target": 21,
+    "bundle": 63
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 7.5
+  },
+  {
+   "all_found_s": 8.0,
+   "all_reached_s": 9.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 22.48719265534391,
+   "min_sep_m": 1.9189946194324574,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 348,
+    "target": 31,
+    "bundle": 70
+   },
+   "duplicates": 1,
+   "wasted_trips": 1,
+   "handovers": 14,
+   "end_s": 9.5
+  },
+  {
+   "all_found_s": 10.0,
+   "all_reached_s": 11.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 29.59780445051828,
+   "min_sep_m": 3.0260204796775967,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 420,
+    "target": 25,
+    "bundle": 76
+   },
+   "duplicates": 1,
+   "wasted_trips": 1,
+   "handovers": 6,
+   "end_s": 11.5
+  },
+  {
+   "all_found_s": 10.0,
+   "all_reached_s": 12.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 29.89258112839719,
+   "min_sep_m": 3.177249474679478,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 438,
+    "target": 24,
+    "bundle": 71
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 12.0
+  },
+  {
+   "all_found_s": 10.5,
+   "all_reached_s": 13.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 31.751218166898745,
+   "min_sep_m": 3.548825919232021,
+   "coverage_90_s": 13.0,
+   "messages": {
+    "agent": 474,
+    "target": 25,
+    "bundle": 77
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 6,
+   "end_s": 13.0
+  },
+  {
+   "all_found_s": 5.0,
+   "all_reached_s": 7.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 16.910362984565865,
+   "min_sep_m": 2.7378180844989988,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 258,
+    "target": 19,
+    "bundle": 56
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 1,
+   "end_s": 7.0
+  },
+  {
+   "all_found_s": 3.5,
+   "all_reached_s": 6.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 13.5672365729332,
+   "min_sep_m": 2.3826826667554624,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 222,
+    "target": 27,
+    "bundle": 57
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 3,
+   "end_s": 6.0
+  },
+  {
+   "all_found_s": 8.0,
+   "all_reached_s": 10.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 22.72697410209343,
+   "min_sep_m": 1.8292787307528195,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 366,
+    "target": 23,
+    "bundle": 73
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 10,
+   "end_s": 10.0
+  },
+  {
+   "all_found_s": 14.0,
+   "all_reached_s": 16.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 39.14040486390161,
+   "min_sep_m": 2.627168176650587,
+   "coverage_90_s": 14.5,
+   "messages": {
+    "agent": 582,
+    "target": 19,
+    "bundle": 83
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 3,
+   "end_s": 16.0
+  },
+  {
+   "all_found_s": 17.0,
+   "all_reached_s": 19.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 46.00143884485125,
+   "min_sep_m": 2.4712361275938943,
+   "coverage_90_s": 17.5,
+   "messages": {
+    "agent": 690,
+    "target": 27,
+    "bundle": 97
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 9,
+   "end_s": 19.0
+  },
+  {
+   "all_found_s": 6.5,
+   "all_reached_s": 8.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 20.635834848106825,
+   "min_sep_m": 2.1872377421234606,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 312,
+    "target": 34,
+    "bundle": 60
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 11,
+   "end_s": 8.5
+  },
+  {
+   "all_found_s": 7.0,
+   "all_reached_s": 8.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 21.71276945122407,
+   "min_sep_m": 4.07780249411717,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 312,
+    "target": 26,
+    "bundle": 61
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 4,
+   "end_s": 8.5
+  },
+  {
+   "all_found_s": 4.5,
+   "all_reached_s": 5.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 12.699202250735272,
+   "min_sep_m": 2.3504405574804323,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 204,
+    "target": 17,
+    "bundle": 55
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 2,
+   "end_s": 5.5
+  },
+  {
+   "all_found_s": 9.0,
+   "all_reached_s": 10.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 25.900410090571118,
+   "min_sep_m": 2.283957070860695,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 384,
+    "target": 37,
+    "bundle": 72
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 10.5
+  },
+  {
+   "all_found_s": 15.5,
+   "all_reached_s": 17.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 43.3290106723248,
+   "min_sep_m": 1.989459939825225,
+   "coverage_90_s": 13.5,
+   "messages": {
+    "agent": 618,
+    "target": 33,
+    "bundle": 84
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 11,
+   "end_s": 17.0
+  },
+  {
+   "all_found_s": 8.0,
+   "all_reached_s": 9.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 21.50780645028403,
+   "min_sep_m": 2.0799861857971993,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 348,
+    "target": 26,
+    "bundle": 66
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 4,
+   "end_s": 9.5
+  },
+  {
+   "all_found_s": 9.5,
+   "all_reached_s": 11.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 27.7665278638842,
+   "min_sep_m": 2.6058298670068654,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 402,
+    "target": 32,
+    "bundle": 72
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 14,
+   "end_s": 11.0
+  },
+  {
+   "all_found_s": 7.5,
+   "all_reached_s": 9.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 23.813971563275434,
+   "min_sep_m": 3.4784712438246803,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 348,
+    "target": 19,
+    "bundle": 59
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 8,
+   "end_s": 9.5
+  },
+  {
+   "all_found_s": 11.5,
+   "all_reached_s": 13.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 34.606385498439046,
+   "min_sep_m": 2.121778778818759,
+   "coverage_90_s": 12.5,
+   "messages": {
+    "agent": 492,
+    "target": 26,
+    "bundle": 83
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 2,
+   "end_s": 13.5
+  },
+  {
+   "all_found_s": 14.5,
+   "all_reached_s": 16.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 41.298134640808165,
+   "min_sep_m": 2.638723083378861,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 600,
+    "target": 23,
+    "bundle": 84
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 6,
+   "end_s": 16.5
+  },
+  {
+   "all_found_s": 7.5,
+   "all_reached_s": 9.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 22.803373077724284,
+   "min_sep_m": 2.964509023346674,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 330,
+    "target": 24,
+    "bundle": 64
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 4,
+   "end_s": 9.0
+  },
+  {
+   "all_found_s": 12.0,
+   "all_reached_s": 13.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 34.014604505064455,
+   "min_sep_m": 2.9003350425409757,
+   "coverage_90_s": 12.5,
+   "messages": {
+    "agent": 474,
+    "target": 27,
+    "bundle": 79
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 2,
+   "end_s": 13.0
+  },
+  {
+   "all_found_s": 7.5,
+   "all_reached_s": 11.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 28.722102503627127,
+   "min_sep_m": 3.5727180136135566,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 402,
+    "target": 28,
+    "bundle": 70
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 12,
+   "end_s": 11.0
+  },
+  {
+   "all_found_s": 7.0,
+   "all_reached_s": 9.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 21.256498463417294,
+   "min_sep_m": 2.003831923851931,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 330,
+    "target": 32,
+    "bundle": 62
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 12,
+   "end_s": 9.0
+  },
+  {
+   "all_found_s": 9.5,
+   "all_reached_s": 11.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 30.033258135104127,
+   "min_sep_m": 2.4074441864876133,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 420,
+    "target": 26,
+    "bundle": 71
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 8,
+   "end_s": 11.5
+  },
+  {
+   "all_found_s": 9.0,
+   "all_reached_s": 10.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 25.577922406855073,
+   "min_sep_m": 3.048273953490854,
+   "coverage_90_s": 9.5,
+   "messages": {
+    "agent": 366,
+    "target": 15,
+    "bundle": 67
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 1,
+   "end_s": 10.0
+  },
+  {
+   "all_found_s": 16.5,
+   "all_reached_s": 19.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 41.94793728269543,
+   "min_sep_m": 2.574845147347874,
+   "coverage_90_s": 17.0,
+   "messages": {
+    "agent": 690,
+    "target": 49,
+    "bundle": 94
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 4,
+   "end_s": 19.0
+  },
+  {
+   "all_found_s": 9.5,
+   "all_reached_s": 10.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 26.08179558791079,
+   "min_sep_m": 3.491485380354112,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 366,
+    "target": 29,
+    "bundle": 66
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 12,
+   "end_s": 10.0
+  },
+  {
+   "all_found_s": 7.5,
+   "all_reached_s": 9.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 22.871278227584263,
+   "min_sep_m": 2.862879936601752,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 330,
+    "target": 24,
+    "bundle": 63
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 2,
+   "end_s": 9.0
+  },
+  {
+   "all_found_s": 4.5,
+   "all_reached_s": 5.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 12.580635880601214,
+   "min_sep_m": 2.7885697058861605,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 204,
+    "target": 21,
+    "bundle": 56
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 5.5
+  },
+  {
+   "all_found_s": 15.0,
+   "all_reached_s": 15.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 35.84895720563824,
+   "min_sep_m": 2.0236493713359205,
+   "coverage_90_s": 15.5,
+   "messages": {
+    "agent": 564,
+    "target": 18,
+    "bundle": 80
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 8,
+   "end_s": 15.5
+  },
+  {
+   "all_found_s": 6.5,
+   "all_reached_s": 9.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 23.630532674279102,
+   "min_sep_m": 2.645296253332722,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 348,
+    "target": 26,
+    "bundle": 69
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 2,
+   "end_s": 9.5
+  },
+  {
+   "all_found_s": 19.0,
+   "all_reached_s": 19.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 47.751047825462265,
+   "min_sep_m": 1.7982918972944049,
+   "coverage_90_s": 18.5,
+   "messages": {
+    "agent": 708,
+    "target": 33,
+    "bundle": 96
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 10,
+   "end_s": 19.5
+  },
+  {
+   "all_found_s": 9.0,
+   "all_reached_s": 10.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 24.38683440558363,
+   "min_sep_m": 2.581039562423703,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 366,
+    "target": 25,
+    "bundle": 63
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 12,
+   "end_s": 10.0
+  },
+  {
+   "all_found_s": 7.5,
+   "all_reached_s": 8.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 19.57526210639665,
+   "min_sep_m": 1.9610321097220196,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 312,
+    "target": 27,
+    "bundle": 62
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 5,
+   "end_s": 8.5
+  },
+  {
+   "all_found_s": 11.5,
+   "all_reached_s": 12.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 30.718260432240363,
+   "min_sep_m": 3.421681781904648,
+   "coverage_90_s": 11.0,
+   "messages": {
+    "agent": 438,
+    "target": 17,
+    "bundle": 72
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 4,
+   "end_s": 12.0
+  },
+  {
+   "all_found_s": 11.5,
+   "all_reached_s": 13.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 35.21972232356653,
+   "min_sep_m": 2.5238939788691086,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 492,
+    "target": 25,
+    "bundle": 76
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 7,
+   "end_s": 13.5
+  },
+  {
+   "all_found_s": 14.5,
+   "all_reached_s": 16.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 36.72479765051345,
+   "min_sep_m": 2.51632134833121,
+   "coverage_90_s": 13.5,
+   "messages": {
+    "agent": 582,
+    "target": 29,
+    "bundle": 84
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 16.0
+  },
+  {
+   "all_found_s": 13.5,
+   "all_reached_s": 15.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 38.310011459274826,
+   "min_sep_m": 2.6150915648726887,
+   "coverage_90_s": 9.5,
+   "messages": {
+    "agent": 546,
+    "target": 38,
+    "bundle": 82
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 10,
+   "end_s": 15.0
+  },
+  {
+   "all_found_s": 7.5,
+   "all_reached_s": 9.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 22.327152402667455,
+   "min_sep_m": 3.247573490839394,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 330,
+    "target": 16,
+    "bundle": 61
+   },
+   "duplicates": 1,
+   "wasted_trips": 1,
+   "handovers": 8,
+   "end_s": 9.0
+  },
+  {
+   "all_found_s": 13.0,
+   "all_reached_s": 14.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 36.59305819612811,
+   "min_sep_m": 1.9681980244050883,
+   "coverage_90_s": 14.0,
+   "messages": {
+    "agent": 528,
+    "target": 26,
+    "bundle": 93
+   },
+   "duplicates": 2,
+   "wasted_trips": 0,
+   "handovers": 11,
+   "end_s": 14.5
+  },
+  {
+   "all_found_s": 13.5,
+   "all_reached_s": 14.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 36.307273376579246,
+   "min_sep_m": 2.03164397508129,
+   "coverage_90_s": 11.5,
+   "messages": {
+    "agent": 528,
+    "target": 18,
+    "bundle": 78
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 14.5
+  },
+  {
+   "all_found_s": 9.5,
+   "all_reached_s": 12.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 30.625341302507398,
+   "min_sep_m": 2.1934323170970664,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 456,
+    "target": 21,
+    "bundle": 70
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 9,
+   "end_s": 12.5
+  },
+  {
+   "all_found_s": 21.0,
+   "all_reached_s": 23.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 61.629786079072204,
+   "min_sep_m": 2.4341878062285205,
+   "coverage_90_s": 11.5,
+   "messages": {
+    "agent": 834,
+    "target": 19,
+    "bundle": 101
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 6,
+   "end_s": 23.0
+  },
+  {
+   "all_found_s": 13.0,
+   "all_reached_s": 15.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 39.97950498510353,
+   "min_sep_m": 3.070699166253979,
+   "coverage_90_s": 15.0,
+   "messages": {
+    "agent": 564,
+    "target": 28,
+    "bundle": 87
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 1,
+   "end_s": 15.5
+  },
+  {
+   "all_found_s": 13.0,
+   "all_reached_s": 15.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 35.942320617694406,
+   "min_sep_m": 2.043172613292522,
+   "coverage_90_s": 13.5,
+   "messages": {
+    "agent": 546,
+    "target": 28,
+    "bundle": 81
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 15,
+   "end_s": 15.0
+  },
+  {
+   "all_found_s": 6.5,
+   "all_reached_s": 10.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 23.248206447265616,
+   "min_sep_m": 2.2893287475412984,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 366,
+    "target": 28,
+    "bundle": 68
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 9,
+   "end_s": 10.0
+  },
+  {
+   "all_found_s": 12.0,
+   "all_reached_s": 13.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 35.216231692708135,
+   "min_sep_m": 3.047813261675653,
+   "coverage_90_s": 13.5,
+   "messages": {
+    "agent": 492,
+    "target": 19,
+    "bundle": 79
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 3,
+   "end_s": 13.5
+  },
+  {
+   "all_found_s": 9.0,
+   "all_reached_s": 9.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 24.094544360783495,
+   "min_sep_m": 3.8791235281913616,
+   "coverage_90_s": 9.5,
+   "messages": {
+    "agent": 348,
+    "target": 27,
+    "bundle": 60
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 11,
+   "end_s": 9.5
+  },
+  {
+   "all_found_s": 6.5,
+   "all_reached_s": 13.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 32.43800590349526,
+   "min_sep_m": 1.852923198361476,
+   "coverage_90_s": 11.5,
+   "messages": {
+    "agent": 474,
+    "target": 42,
+    "bundle": 75
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 5,
+   "end_s": 13.0
+  },
+  {
+   "all_found_s": 4.5,
+   "all_reached_s": 6.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 14.962452701680512,
+   "min_sep_m": 4.2216617901903035,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 222,
+    "target": 21,
+    "bundle": 56
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 6.0
+  },
+  {
+   "all_found_s": 15.0,
+   "all_reached_s": 16.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 43.27124360888804,
+   "min_sep_m": 2.815211678499456,
+   "coverage_90_s": 16.0,
+   "messages": {
+    "agent": 600,
+    "target": 16,
+    "bundle": 81
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 3,
+   "end_s": 16.5
+  },
+  {
+   "all_found_s": 12.0,
+   "all_reached_s": 14.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 35.48492573972761,
+   "min_sep_m": 2.7881792889611954,
+   "coverage_90_s": 12.0,
+   "messages": {
+    "agent": 510,
+    "target": 21,
+    "bundle": 81
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 13,
+   "end_s": 14.0
+  },
+  {
+   "all_found_s": 4.5,
+   "all_reached_s": 7.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 18.970005767998337,
+   "min_sep_m": 2.8490735857587333,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 276,
+    "target": 32,
+    "bundle": 58
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 7.5
+  },
+  {
+   "all_found_s": 9.0,
+   "all_reached_s": 11.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 27.139655289202036,
+   "min_sep_m": 3.0471941784637395,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 420,
+    "target": 21,
+    "bundle": 68
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 11,
+   "end_s": 11.5
+  },
+  {
+   "all_found_s": 7.0,
+   "all_reached_s": 9.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 20.198018501843578,
+   "min_sep_m": 2.1060946182649234,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 330,
+    "target": 33,
+    "bundle": 67
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 8,
+   "end_s": 9.0
+  },
+  {
+   "all_found_s": 5.5,
+   "all_reached_s": 10.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 25.027462017641575,
+   "min_sep_m": 2.1620180653893404,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 366,
+    "target": 34,
+    "bundle": 70
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 2,
+   "end_s": 10.0
+  },
+  {
+   "all_found_s": 10.0,
+   "all_reached_s": 12.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 32.01031625080834,
+   "min_sep_m": 3.2910644091668804,
+   "coverage_90_s": 12.5,
+   "messages": {
+    "agent": 456,
+    "target": 22,
+    "bundle": 76
+   },
+   "duplicates": 1,
+   "wasted_trips": 1,
+   "handovers": 6,
+   "end_s": 12.5
+  },
+  {
+   "all_found_s": 7.5,
+   "all_reached_s": 9.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 20.92907884001829,
+   "min_sep_m": 1.8076058474886898,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 348,
+    "target": 29,
+    "bundle": 75
+   },
+   "duplicates": 1,
+   "wasted_trips": 1,
+   "handovers": 6,
+   "end_s": 9.5
+  },
+  {
+   "all_found_s": 10.0,
+   "all_reached_s": 11.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 27.198853436045475,
+   "min_sep_m": 2.016040375987633,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 402,
+    "target": 26,
+    "bundle": 74
+   },
+   "duplicates": 2,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 11.0
+  },
+  {
+   "all_found_s": 16.5,
+   "all_reached_s": 17.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 38.47618003001692,
+   "min_sep_m": 1.800014227877768,
+   "coverage_90_s": 17.5,
+   "messages": {
+    "agent": 636,
+    "target": 28,
+    "bundle": 92
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 5,
+   "end_s": 17.5
+  },
+  {
+   "all_found_s": 7.0,
+   "all_reached_s": 10.0,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 22.994023945481665,
+   "min_sep_m": 1.7733649191514438,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 366,
+    "target": 44,
+    "bundle": 76
+   },
+   "duplicates": 1,
+   "wasted_trips": 0,
+   "handovers": 4,
+   "end_s": 10.0
+  },
+  {
+   "all_found_s": 8.0,
+   "all_reached_s": 11.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 27.170578581046062,
+   "min_sep_m": 2.0204896490484083,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 420,
+    "target": 31,
+    "bundle": 72
+   },
+   "duplicates": 1,
+   "wasted_trips": 1,
+   "handovers": 11,
+   "end_s": 11.5
+  },
+  {
+   "all_found_s": 11.0,
+   "all_reached_s": 12.5,
+   "reached": 4,
+   "targets": 4,
+   "flown_m": 30.97709104714036,
+   "min_sep_m": 2.940479490419973,
+   "coverage_90_s": null,
+   "messages": {
+    "agent": 456,
+    "target": 13,
+    "bundle": 63
+   },
+   "duplicates": 0,
+   "wasted_trips": 0,
+   "handovers": 0,
+   "end_s": 12.5
+  }
+ ]
+}

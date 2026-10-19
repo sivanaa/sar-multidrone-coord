@@ -57,6 +57,21 @@ NEAREST_CANDIDATES = 0
 # finished more missions but slowed medians 20-90%; a longer revisit time
 # (brain.REVISIT_AFTER_S) fixed the tail at no cost, so this stays 1.
 NEVER_SEEN_GAIN = 1.0
+# Keep at least this fraction of the area due for search: when less is
+# stale, the oldest-searched cells (searched at least MIN_DUE_AGE_S ago)
+# count as due anyway, so a fleet that has covered everything starts its
+# next pass at once instead of drifting until revisit_after_s. 0 = off.
+# Needed since revisit_after_s went 60 -> 240s (brain.REVISIT_AFTER_S):
+# over the 6m test area the fleet covers everything in ~15s, then nothing
+# was due for 4 minutes, so a person the first pass missed waited ~250s
+# (fleet simulator 2026-10-19: 5 of 320 missions unfinished at 200s; at
+# 60s they were found at ~65-75s). With 0.1: 0 of 320, and 1 of 720 over
+# the 12m area (240s alone: 1; 60s: 50), medians identical. 0.2 left 5
+# unfinished in the 12m area and slowed its p90. A camera-shaped
+# coverage map (CoverageMap footprint) instead of this: no better (2 of
+# 720), and slightly slower.
+MIN_DUE_FRACTION = 0.1
+MIN_DUE_AGE_S = 5.0
 
 
 def camera_footprint(altitude_m, hfov_deg=87.0, aspect=16 / 9):
@@ -94,6 +109,7 @@ class CoverageMap:
         self.revisit_after_s = revisit_after_s
         self.risk = risk or {}  # cell -> flood risk 0-1 (missing = 0)
         self.last_seen = {}  # cell -> time it was last seen
+        self._due_cache = None  # (now, _due_age) - recomputed after mark_seen
 
         cx, cy = area_center
         reach = int(math.ceil(area_radius / cell_size)) + 1
@@ -158,7 +174,34 @@ class CoverageMap:
         seen = self.last_seen.get(cell)
         return seen is None or now - seen >= self.revisit_after(cell)
 
+    def _due_age(self, now):
+        """See MIN_DUE_FRACTION: the age at which a cell is due anyway,
+        or None when enough of the area is already stale."""
+        if MIN_DUE_FRACTION <= 0:
+            return None
+        if self._due_cache is not None and self._due_cache[0] == now:
+            return self._due_cache[1]
+        ages = sorted((now - self.last_seen[c] if c in self.last_seen
+                       else math.inf for c in self.area_cells), reverse=True)
+        k = max(1, int(MIN_DUE_FRACTION * len(ages)))
+        cutoff = max(ages[k - 1], MIN_DUE_AGE_S) if ages else None
+        self._due_cache = (now, cutoff)
+        return cutoff
+
+    def _due(self, cell, now):
+        """Worth searching now: stale, or among the area's oldest-searched
+        MIN_DUE_FRACTION when too little is stale."""
+        seen = self.last_seen.get(cell)
+        if seen is None:
+            return True
+        limit = self.revisit_after(cell)
+        cutoff = self._due_age(now)
+        if cutoff is not None:
+            limit = min(limit, cutoff)
+        return now - seen >= limit
+
     def mark_seen(self, x, y, now):
+        self._due_cache = None
         for cell in self._cells_seen_from(x, y):
             self.last_seen[cell] = now
 
@@ -172,7 +215,7 @@ class CoverageMap:
         return sum(
             self.value(cell) for cell in self._cells_seen_from(x, y)
             if cell in self._area_cell_set and cell not in claimed_cells
-            and self._stale(cell, now))
+            and self._due(cell, now))
 
     def fitness(self, x, y, now, claimed=()):
         overreach = max(0.0, math.dist((x, y), self.area_center)
@@ -183,7 +226,7 @@ class CoverageMap:
         """Up to `count` stale cell centers - candidate places to search
         next, scored with fitness() by the caller: the NEAREST_CANDIDATES
         closest to `near` (when given), the rest random."""
-        stale = [c for c in self.area_cells if self._stale(c, now)]
+        stale = [c for c in self.area_cells if self._due(c, now)]
         nearest = []
         if near is not None and NEAREST_CANDIDATES > 0 and stale:
             stale.sort(key=lambda c: math.dist(self._center(c), near))

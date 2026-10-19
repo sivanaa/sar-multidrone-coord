@@ -91,7 +91,9 @@ SEARCH_LOG_EVERY_TICKS = 10  # 5s
 # with both), p90 time to reach all 150 -> 90s for 2 drones; medians
 # unchanged; at r=6m identical in every metric. 120/180s fixed less;
 # favouring never-searched cells (coverage.NEVER_SEEN_GAIN 3-10) fixed
-# the tail too but slowed medians 20-90%.
+# the tail too but slowed medians 20-90%. Alone it broke the small area
+# instead (nothing due for 4 minutes after the first pass), fixed by
+# coverage.MIN_DUE_FRACTION (2026-10-19).
 REVISIT_AFTER_S = 240.0
 # Every REBROADCAST_S, re-send this drone's bundle state and every open
 # task it knows of. CBBA as first written only sent on a change, so a lost

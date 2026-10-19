@@ -1496,6 +1496,22 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      10-25s). Favouring never-searched cells (`coverage.NEVER_SEEN_GAIN`
      3 / 10) also finished more missions but slowed medians 20-90% - kept
      off.
+   - **...which broke the small area; fixed by an adaptive revisit
+     (2026-10-19).** Re-running every experiment for the report's figures
+     (`tools/report_sweeps.sh`) showed the 240s revisit had cost the 6m
+     test area: 5 of 320 missions unfinished at 200s (80/80 before). The
+     check on 10-16 had stopped at 120s. Over 6m the fleet covers
+     everything in ~15s; then nothing was due for 4 minutes, so a person
+     the first pass missed (e.g. counted as searched by the map's 1.5m
+     circle without having been in the camera's view) waited ~250s - with
+     60s they were found at ~65-75s. Now `coverage.MIN_DUE_FRACTION` =
+     0.1: when less than 10% of the area is due, the oldest-searched cells
+     (at least `MIN_DUE_AGE_S` = 5s old) count as due, so the next pass
+     starts at once. Unfinished missions, small area (of 320) / 12m area
+     (of 720): revisit 60s 0 / 50, 240s 5 / 1, **240s + adaptive 0 / 1**,
+     medians identical to 240s alone. Tried and rejected: 20% (5 unfinished
+     in the 12m area, slower p90), and a camera-shaped coverage map
+     (`CoverageMap(footprint=...)`, 2 unfinished, slightly slower).
    - **Bundle size and discount against the pile-up** (one drone chaining
      3 people while another has none, seen live): swept
      `cbba.MAX_BUNDLE_SIZE` 3 / 2 x `cbba.DISCOUNT` 0.9 / 0.8 / 0.7 - 300

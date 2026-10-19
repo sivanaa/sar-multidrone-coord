@@ -89,3 +89,17 @@ def test_risk_map_file_round_trip(tmp_path):
     cell_size, risk = load_risk_map(str(path))
     assert cell_size == 1.0
     assert risk == {(1, 2): 0.75, (3, 4): 1.0}   # clamped to 0-1
+
+
+def test_once_everything_is_searched_the_oldest_cells_are_due_again(monkeypatch):
+    import coordination_node.coverage as coverage
+    cov = CoverageMap((0.0, 0.0), 3.0, sensor_radius=1.5, revisit_after_s=240.0)
+    first = cov.area_cells[0]
+    cov.last_seen = {c: 10.0 for c in cov.area_cells}
+    cov.last_seen[first] = 0.0                       # searched longest ago
+    monkeypatch.setattr(coverage, 'MIN_DUE_FRACTION', 0.0)
+    assert cov.sample_unexplored(5, now=20.0) == []  # nothing stale until 240s
+    monkeypatch.setattr(coverage, 'MIN_DUE_FRACTION', 0.01)
+    cov._due_cache = None
+    assert cov.sample_unexplored(5, now=20.0) == [cov._center(first)]
+    assert cov.sample_unexplored(5, now=3.0) == []   # under MIN_DUE_AGE_S
