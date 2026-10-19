@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="720" height="330" viewBox="0 0 720 330" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="t d">
-<title id="t">CBBA under message loss</title><desc id="d">Missions finished vs message loss, our CBBA vs plain CBBA.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="330" viewBox="0 0 720 330" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="cbba_message_loss-t cbba_message_loss-d">
+<title id="cbba_message_loss-t">CBBA under message loss</title><desc id="cbba_message_loss-d">Missions finished vs message loss, our CBBA vs plain CBBA.</desc>
 <rect width="720" height="330" fill="#fcfcfb"/>
 <text x="24.0" y="30.0" font-size="15" fill="#0b0b0b" text-anchor="start" font-weight="600">Our CBBA keeps finishing missions as messages are lost</text>
 <text x="24.0" y="50.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">Missions where every person was reached, of 80 (4 people, 6m area, 200s limit)</text>

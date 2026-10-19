@@ -1512,6 +1512,22 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      medians identical to 240s alone. Tried and rejected: 20% (5 unfinished
      in the 12m area, slower p90), and a camera-shaped coverage map
      (`CoverageMap(footprint=...)`, 2 unfinished, slightly slower).
+   - **First 3-drone AirSim run (2026-10-19): all 5 people reached, but a
+     1.38m approach.** `SIM=airsim NUM_DRONES=3 sim.sh test-fleet` worked
+     unchanged (the AirSim backend already wrote one vehicle per spawn;
+     `airsim_tool watch` now tracks the closest pair of the whole fleet
+     over one connection). 4.5 minutes into the search that continued
+     after the mission, drones 1 and 2 met at 1.38m. Their reports were
+     accurate (p95 0.13m) and on time (100ms), and both setpoints kept
+     1.83m+ from the other drone - the vehicles overshot them: AirSim's
+     PX4 drones stop at ~1 m/s2 (0.87 -> 0.01 m/s in 0.9s), and
+     `brain.BRAKE_DECEL_MPS2` assumed 2.0 (Gazebo's figure). Now 1.0.
+     The fleet simulator doesn't reach 1.38m (its vehicle model is
+     simpler), but over 300s of continuous search in the 6m area it shows
+     the same trend: worst approach 1.60-1.64 -> 1.68-1.72m with
+     AirSim-like vehicles, 1.60-1.73 -> 1.75-1.76m with Gazebo-like ones,
+     search times unchanged. (A 1.12m reading later in that run came
+     after `sim.sh down` had stopped the nodes - nothing was steering.)
    - **Bundle size and discount against the pile-up** (one drone chaining
      3 people while another has none, seen live): swept
      `cbba.MAX_BUNDLE_SIZE` 3 / 2 x `cbba.DISCOUNT` 0.9 / 0.8 / 0.7 - 300

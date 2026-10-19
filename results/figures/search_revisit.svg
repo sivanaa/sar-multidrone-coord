@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="720" height="340" viewBox="0 0 720 340" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="t d">
-<title id="t">Revisit time fix</title><desc id="d">Missions finished with 60s vs 240s revisit time in the hardest cases.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="340" viewBox="0 0 720 340" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="search_revisit-t search_revisit-d">
+<title id="search_revisit-t">Revisit time fix</title><desc id="search_revisit-d">Missions finished with 60s vs 240s revisit time in the hardest cases.</desc>
 <rect width="720" height="340" fill="#fcfcfb"/>
 <text x="24.0" y="30.0" font-size="15" fill="#0b0b0b" text-anchor="start" font-weight="600">A longer, adaptive revisit time fixes PSO's unfinished missions</text>
 <text x="24.0" y="50.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">Missions where every person was reached within 500s, of 60 (12m-radius area)</text>

@@ -59,7 +59,14 @@ SETPOINT_AVOID_RADIUS_M = 2.5
 # match the live 1.24m: head-on 1.18-1.37m -> 1.81m+, perpendicular
 # 1.15m -> 1.78m+, hovering neighbor (test C) unchanged and still reached.
 NEIGHBOR_LOOKAHEAD_S = 0.5
-BRAKE_DECEL_MPS2 = 2.0
+# Was 2.0 (Gazebo's measured accel p95 1.3-2.9 m/s2). AirSim's PX4 drones
+# stop at ~1 m/s2 (0.87 -> 0.01 m/s in 0.9s), so two flying head-on
+# overshot setpoints that kept 1.83m+ by ~0.5m and met at 1.38m - first
+# live 3-drone AirSim run (2026-10-19), 4.5 min into a crowded search.
+# Fleet simulator, 300s of continuous search over the 6m area, 20 runs:
+# worst approach 1.60-1.64 -> 1.68-1.72m with AirSim-like vehicles and
+# 1.60-1.73 -> 1.75-1.76m with Gazebo-like ones; search times unchanged.
+BRAKE_DECEL_MPS2 = 1.0
 SETPOINT_LEAD_S = 0.5
 ARRIVAL_RADIUS_M = 0.3  # home (landing); must match navigate.py's default
 # A person counts as reached once the drone is this close - well inside the

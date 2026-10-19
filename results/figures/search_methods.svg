@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="t d">
-<title id="t">Search methods</title><desc id="d">Cumulative share of missions finished over time for four search methods at 2, 3 and 4 drones.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="search_methods-t search_methods-d">
+<title id="search_methods-t">Search methods</title><desc id="search_methods-d">Cumulative share of missions finished over time for four search methods at 2, 3 and 4 drones.</desc>
 <rect width="960" height="360" fill="#fcfcfb"/>
 <text x="24.0" y="30.0" font-size="15" fill="#0b0b0b" text-anchor="start" font-weight="600">Search: PSO matches a lawnmower and is 2-3x faster than random</text>
 <text x="24.0" y="50.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">% of missions with every person reached by time t (12m-radius area, 4 people, 60 missions)</text>

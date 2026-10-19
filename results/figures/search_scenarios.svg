@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="t d">
-<title id="t">Search scenarios</title><desc id="d">Median time to reach everyone, PSO vs lawnmower, in four scenarios.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" font-family='system-ui, -apple-system, "Segoe UI", sans-serif' role="img" aria-labelledby="search_scenarios-t search_scenarios-d">
+<title id="search_scenarios-t">Search scenarios</title><desc id="search_scenarios-d">Median time to reach everyone, PSO vs lawnmower, in four scenarios.</desc>
 <rect width="960" height="360" fill="#fcfcfb"/>
 <text x="24.0" y="30.0" font-size="15" fill="#0b0b0b" text-anchor="start" font-weight="600">When a drone leaves or people cluster by a river, PSO finds everyone sooner</text>
 <text x="24.0" y="50.0" font-size="12" fill="#52514e" text-anchor="start" font-weight="400">Median seconds until every person was reached (12m-radius area, 4 people, 60 missions; lower is better)</text>
