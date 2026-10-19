@@ -117,12 +117,16 @@ class Svg:
 
     def save(self, path, title, desc):
         body = '\n'.join(self.parts)
+        # ids unique per figure, so several can be inlined in one page
+        key = os.path.splitext(os.path.basename(path))[0]
         with open(path, 'w') as f:
             f.write(
                 f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.w}" '
                 f'height="{self.h}" viewBox="0 0 {self.w} {self.h}" '
-                f'font-family=\'{FONT}\' role="img" aria-labelledby="t d">\n'
-                f'<title id="t">{title}</title><desc id="d">{desc}</desc>\n'
+                f'font-family=\'{FONT}\' role="img" '
+                f'aria-labelledby="{key}-t {key}-d">\n'
+                f'<title id="{key}-t">{title}</title>'
+                f'<desc id="{key}-d">{desc}</desc>\n'
                 f'<rect width="{self.w}" height="{self.h}" fill="{SURFACE}"/>\n'
                 f'{body}\n</svg>\n')
 

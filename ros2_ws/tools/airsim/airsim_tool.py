@@ -223,14 +223,17 @@ def line(a, pa, b, pb, d, closest, floor):
             f'{pb[1]:.2f})  distance {d:.2f} m  closest {closest:.2f} m{warn}')
 
 
-def watch(host, a, b, spawns, hz, print_every_s, floor, log_path=None):
+def watch(host, drones, spawns, hz, print_every_s, floor, log_path=None):
     """drone_distance.sh for AirSim: one API connection kept open, sampled
     at `hz`, printed every `print_every_s` and at every new closest. Two
     fresh Python processes per sample managed ~1.2 samples/s (first live
-    AirSim test-x, 2026-10-13), too slow to catch a head-on pass. With
-    `log_path`, every sample also goes there as JSON lines {t, drone:
-    [x, y], ...} (wall-clock t, same clock as mission_recorder.py), to
-    compare true positions with what the drones believe."""
+    AirSim test-x, 2026-10-13), too slow to catch a head-on pass. `drones`:
+    the ids to watch - two for a pair, more for the whole fleet (the
+    closest pair each sample is the one printed). With `log_path`, every
+    sample also goes there as JSON lines {t, drone: [x, y], ...}
+    (wall-clock t, same clock as mission_recorder.py), to compare true
+    positions with what the drones believe."""
+    import itertools
     import math
     import time
     c = client(host)
@@ -239,18 +242,22 @@ def watch(host, a, b, spawns, hz, print_every_s, floor, log_path=None):
     while True:
         start = time.monotonic()
         try:
-            pa, pb = shared_xy(c, a, spawns[a]), shared_xy(c, b, spawns[b])
+            pos = {n: shared_xy(c, n, spawns[n]) for n in drones}
         except Exception:  # AirSim not up yet, or restarting
-            pa = pb = None
+            pos = {}
             c = client(host)
-        if pa is None or pb is None:
-            print(f'waiting for drones {a} and {b} in airsim...', flush=True)
+        if len(pos) < len(drones) or None in pos.values():
+            print(f'waiting for drones {", ".join(map(str, drones))} in airsim...',
+                  flush=True)
             time.sleep(1.0)
             continue
         if log:
             log.write(json.dumps(
-                {'t': time.time(), str(a): pa, str(b): pb}) + '\n')
+                {'t': time.time(), **{str(n): p for n, p in pos.items()}}) + '\n')
             log.flush()
+        a, b = min(itertools.combinations(drones, 2),
+                   key=lambda ab: math.dist(pos[ab[0]], pos[ab[1]]))
+        pa, pb = pos[a], pos[b]
         d = math.dist(pa, pb)
         new_closest = d < closest
         closest = min(closest, d)
@@ -292,8 +299,8 @@ def main(argv=None):
     p.add_argument('--width', type=float, default=3.0)
     p.add_argument('--host', required=True)
     p = sub.add_parser('watch')
-    p.add_argument('a', type=int)
-    p.add_argument('b', type=int)
+    p.add_argument('drones', type=int, nargs='*',
+                   help='two drone ids (default: every drone in --spawn)')
     p.add_argument('--spawn', action='append', required=True,
                    help='X,Y of drone 0, 1, ... in order (write as --spawn=X,Y)')
     p.add_argument('--hz', type=float, default=10.0)
@@ -333,8 +340,8 @@ def main(argv=None):
     elif args.cmd == 'watch':
         spawns = [tuple(float(v) for v in s.split(',')) for s in args.spawn]
         try:
-            watch(args.host, args.a, args.b, spawns, args.hz,
-                  args.print_every, args.floor, args.log)
+            watch(args.host, args.drones or list(range(len(spawns))), spawns,
+                  args.hz, args.print_every, args.floor, args.log)
         except KeyboardInterrupt:
             pass
     elif args.cmd == 'marker':

@@ -14,6 +14,10 @@ tools="$(dirname "$(realpath "$0")")"
 source "$tools/fleet.sh"  # SPAWN_X / SPAWN_Y
 source "$tools/backends/${SIM:-gazebo}.sh" || exit 1
 if [ "$NUM_DRONES" -gt 2 ] && [ -z "${1:-}" ]; then
+  if declare -F backend_distance_watch >/dev/null; then
+    backend_distance_watch  # no drones named: the whole fleet (AirSim)
+    exit
+  fi
   # Whole fleet: every drone's pose each sample, the closest pair reported
   # (same "closest X m" wording - sim.sh down reads it).
   while true; do
