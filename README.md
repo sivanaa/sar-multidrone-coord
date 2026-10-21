@@ -31,11 +31,11 @@ and every number: [`ARCHITECTURE.md`](ARCHITECTURE.md), "Next steps" 8.
 | CBBA with 60% of messages lost | every person reached in 80/80 missions (plain CBBA: 45–52) |
 | Search, plain map | level with a lawnmower sweep; 2–3× faster than random waypoints |
 | Search, a drone leaves / people near a river | 13–34% faster than a re-planning lawnmower; up to 42% with both |
-| Live flights | Gazebo: 2, 3 and 4 drones pass, closest 1.72 m. AirSim: 3 drones pass, closest 1.55 m |
+| Live flights | Gazebo: 2, 3 (×6) and 4 drones pass, closest 1.72 m. AirSim: 3 drones pass after the braking fix, closest 1.55 m |
 
 Known limits: CBBA can leave the last person waiting (8–14% later than the
 best possible); on a plain map a lawnmower has the better worst case; the
-AirSim safety margin is thin; one or two live runs per configuration. The
+AirSim safety margin is thin; one to six live runs per configuration. The
 lab's vision models (person detector, flood segmentation) were tried offline
 on AirSim frames: the detector partly works, the flood models don't transfer
 to the synthetic scene.

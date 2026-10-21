@@ -1535,6 +1535,11 @@ a MAVLink land on SIGINT), then step 0's cleanup line.
      measured with 2.0, so their numbers differ slightly from the figures
      (e.g. 3 drones, plain map: PSO 42.0s vs lawnmower 40.5s, not 41.0 vs
      39.8; plain CBBA at 60% loss 45-52/80, not 53-56).
+     **Final live runs (2026-10-21, final code):** Gazebo `test-fleet`, 3
+     drones, two more runs: both pass, closest 1.72m and 2.60m (six 3-drone
+     Gazebo runs in all, 1.72-2.87m). AirSim, 3 drones, ~8 minutes of
+     search with the nodes running: pass, closest 1.77m (1.55m in the
+     earlier run after the braking fix).
    - **The lab's vision models on AirSim frames (2026-10-19, offline).**
      The Model Server's weights are public in github.com/aykumar21/Drone_LLM
      (no license file - lab use, credit the author). Its ONNX exports run
