@@ -1,11 +1,12 @@
-<section id="search-scenarios" data-transition="fade" style="background:#F5F6F3;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:32px">
+<section id="search-scenarios" data-transition="fade" style="background:#FFFFFF;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:32px">
 <div style="display:flex;flex-direction:column;gap:16px">
 <p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">Search · when plans change</p>
 <h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">PSO adapts; the lawnmower can’t</h2>
 </div>
-<div style="background:#FCFCFB;border:1px solid #DCE0E4;border-radius:16px;padding:16px;align-self:center">
+<div style="background:#FFFFFF;border:1px solid #DCE0E4;border-radius:16px;padding:16px;align-self:center">
 <img src="/_blob/21cb26b305e370c114d1e2c6a7814c5e" alt="Chart: median seconds to reach everyone, PSO versus lawnmower, for normal, drone leaves, river and both, at 2, 3 and 4 drones. PSO is lower in 11 of 12 cases." style="width:1360px;height:510px;object-fit:contain">
 </div>
 <p style="font-size:30px;line-height:1.4;color:#4A5563">Faster in 11 of 12 cases: 13–34% when a drone leaves, up to 42% if people also cluster by a river. The lawnmower is told instantly who left and re-plans.</p>
+<img src="/_blob/9f681d5263a828b7210081650e88014d" alt="National Chung Cheng University" style="position:absolute;right:128px;top:40px;width:300px;height:72px;object-fit:contain">
 <aside>Two scenarios test adaptation. In the first, the last drone hits its battery reserve 15 seconds in and leaves. In the second, a river crosses the area and most people are near it; the drones get the flood-risk map, the lawnmower does not use one. I gave the lawnmower its best chance: it re-divides the area the instant a drone leaves. PSO is still faster in 11 of 12 cases. These runs also exposed a weakness: with few drones, ground was marked due for a second search before everything had been searched once. A longer revisit time, with the oldest 10 percent of the area always due, fixed it: unfinished missions went from 27 out of 60 to none in the worst case.</aside>
 </section>

@@ -1,24 +1,25 @@
-<section id="testing" data-transition="fade" style="background:#F5F6F3;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:56px">
+<section id="testing" data-transition="fade" style="background:#FFFFFF;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:56px">
 <div style="display:flex;flex-direction:column;gap:16px">
 <p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">How it was tested</p>
 <h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">Measured in simulation, confirmed in flight</h2>
 </div>
 <div style="display:flex;align-items:center;gap:24px">
-<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FCFCFB;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FFFFFF;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
 <h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">Fleet simulator</h3>
 <p style="font-size:30px;line-height:1.4;color:#4A5563">The real CBBA, PSO and safety code. Hundreds of missions in minutes, with message loss and delay.</p>
 </div>
 <x-shape kind="arrow-right" style="background:#8FA0B2;width:64px;height:32px"></x-shape>
-<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FCFCFB;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FFFFFF;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
 <h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">Gazebo + PX4</h3>
 <p style="font-size:30px;line-height:1.4;color:#4A5563">Live flights with 2, 3 and 4 drones, after every change to the flight code.</p>
 </div>
 <x-shape kind="arrow-right" style="background:#8FA0B2;width:64px;height:32px"></x-shape>
-<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FCFCFB;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FFFFFF;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
 <h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">AirSim + PX4</h3>
 <p style="font-size:30px;line-height:1.4;color:#4A5563">Unreal flood scene with a downward camera; 3-drone flights.</p>
 </div>
 </div>
 <p style="font-size:30px;line-height:1.4;color:#4A5563">Baselines for every claim: the best possible assignment by brute force, and lawnmower and random search.</p>
+<img src="/_blob/9f681d5263a828b7210081650e88014d" alt="National Chung Cheng University" style="position:absolute;right:128px;top:40px;width:300px;height:72px;object-fit:contain">
 <aside>The method matters as much as the algorithms. Because the logic is separate from ROS, a fast simulator runs the exact flight code for hundreds of missions, with a vehicle model fitted to Gazebo and AirSim and a radio model with message loss. Every result was measured there and then confirmed with live PX4 flights. And every claim has a baseline: CBBA is compared with the brute-force optimum, and PSO with a lawnmower sweep and random search.</aside>
 </section>

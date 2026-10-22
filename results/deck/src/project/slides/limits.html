@@ -1,17 +1,17 @@
-<section id="limits" data-transition="fade" style="background:#E9EDF1;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<section id="limits" data-transition="fade" style="background:#FFFFFF;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
 <div style="display:flex;flex-direction:column;gap:16px">
 <p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">Limits and next steps</p>
 <h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">What it doesn’t do yet</h2>
 </div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:40px">
-<div style="display:flex;flex-direction:column;gap:24px;background:#FCFCFB;border-radius:16px;padding:40px">
+<div style="display:flex;flex-direction:column;gap:24px;background:#FFFFFF;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
 <h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">Limitations</h3>
 <p style="font-size:28px;line-height:1.4;color:#4A5563"><b>CBBA favours the average person:</b> the last one is reached 8–14% later than the best possible.</p>
 <p style="font-size:28px;line-height:1.4;color:#4A5563"><b>On a plain map,</b> a lawnmower has the better worst case.</p>
 <p style="font-size:28px;line-height:1.4;color:#4A5563"><b>Thin margin in AirSim:</b> closest 1.55 m against a 1.5 m floor.</p>
 <p style="font-size:28px;line-height:1.4;color:#4A5563"><b>Few live runs:</b> one to six per setup, simulated drones only.</p>
 </div>
-<div style="display:flex;flex-direction:column;gap:24px;background:#FCFCFB;border-radius:16px;padding:40px">
+<div style="display:flex;flex-direction:column;gap:24px;background:#FFFFFF;border:1px solid #DCE0E4;border-radius:16px;padding:40px">
 <h3 style="font-family:'Archivo', Arial, sans-serif;font-size:40px;font-weight:600;color:#15202B">Future work</h3>
 <p style="font-size:28px;line-height:1.4;color:#4A5563"><b>Min-max bids,</b> so the last person is not left waiting.</p>
 <p style="font-size:28px;line-height:1.4;color:#4A5563"><b>Logical clocks</b> for agreement between drones, then real hardware.</p>
@@ -19,5 +19,6 @@
 <p style="font-size:28px;line-height:1.4;color:#4A5563"><b>Repeated live runs</b> to put error bars on flight results.</p>
 </div>
 </div>
-<aside>Be upfront about the limits. CBBA maximises the total value, which is essentially optimal for average waiting time, but it can leave the last person waiting longer; changing settings did not fix that, it needs a min-max objective. On an empty map, a lawnmower has the better worst case. The AirSim safety margin is thin. And the live evidence is one or two runs per configuration with simulated drones. Next steps follow directly: min-max bidding, logical timestamps instead of each drone’s clock before real hardware, running the lab’s models on realistic imagery, and repeated live runs.</aside>
+<img src="/_blob/9f681d5263a828b7210081650e88014d" alt="National Chung Cheng University" style="position:absolute;right:128px;top:40px;width:300px;height:72px;object-fit:contain">
+<aside>Be upfront about the limits. CBBA maximises the total value, which is essentially optimal for average waiting time, but it can leave the last person waiting longer; changing settings did not fix that, it needs a min-max objective. On an empty map, a lawnmower has the better worst case. The AirSim safety margin is thin. And the live evidence is one to six runs per configuration with simulated drones. Next steps follow directly: min-max bidding, logical timestamps instead of each drone’s clock before real hardware, running the lab’s models on realistic imagery, and repeated live runs.</aside>
 </section>

@@ -284,7 +284,7 @@ class Renderer:
     def _panel(self, d, t):
         x0 = PANEL_X
         d.text((x0, 22), 'Hybrid PSO search + CBBA tasking', font=self.f_title, fill=INK)
-        d.text((x0, 56), '2 PX4 drones in Gazebo, decentralized (no ground station)',
+        d.text((x0, 56), f'{len(self.m.drones)} PX4 drones, decentralized (no ground station)',
                font=self.f_sub, fill=MUTED)
         d.text((x0, 86), f't = {t:5.1f} s', font=self.f_head, fill=INK)
         cov = self.m.coverage

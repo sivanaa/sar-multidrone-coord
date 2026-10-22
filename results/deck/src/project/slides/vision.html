@@ -1,4 +1,4 @@
-<section id="vision" data-transition="fade" style="background:#F5F6F3;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<section id="vision" data-transition="fade" style="background:#FFFFFF;color:#15202B;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
 <div style="display:flex;flex-direction:column;gap:16px">
 <p style="font-size:24px;letter-spacing:3px;text-transform:uppercase;color:#1C5CAB">The lab’s vision models</p>
 <h2 style="font-family:'Archivo', Arial, sans-serif;font-size:64px;font-weight:700;line-height:1.15;color:#15202B">Tried on recorded AirSim camera frames</h2>
@@ -15,5 +15,6 @@
 <p style="font-size:28px;line-height:1.4;color:#4A5563">The water mask marks the whole frame as water. On real flood photos it follows the water, so the gap is the scene, not the code.</p>
 </div>
 </div>
+<img src="/_blob/9f681d5263a828b7210081650e88014d" alt="National Chung Cheng University" style="position:absolute;right:128px;top:40px;width:300px;height:72px;object-fit:contain">
 <aside>The lab’s Model Server weights became available, so I ran its person detector and flood models on camera frames recorded during AirSim flights and scored them against where the people and water really were. The person detector, a YOLO model trained on VisDrone aerial images, found about a quarter of the people in view with no false detections. It picks out hands and feet, which look like people seen from much higher up. The flood models fail on AirSim’s synthetic floor and water: the mask labels everything as water. On real flood photos the same pipeline does follow the water. So these models need a photoreal scene or real footage; the coordination layer will accept any detector that reports a position.</aside>
 </section>

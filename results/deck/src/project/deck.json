@@ -3,7 +3,7 @@
   "createdOnFiles": {"v": 1, "at": "2026-10-19T15:40:00+08:00"},
   "lists": "css",
   "title": "SAR Drone Fleet Coordination",
-  "order": ["cover", "problem", "system", "testing", "cbba-optimal", "cbba-loss", "search-methods", "search-scenarios", "live", "vision", "limits", "thanks"],
+  "order": ["cover", "problem", "system", "testing", "mission", "cbba-optimal", "cbba-loss", "search-methods", "search-scenarios", "live", "vision", "limits", "thanks"],
   "sections": {
     "intro": {"description": "The problem, how the system works, and how it was tested.", "start": "cover"},
     "cbba": {"description": "How well CBBA assigns people to drones, with and without lost messages.", "start": "cbba-optimal"},
